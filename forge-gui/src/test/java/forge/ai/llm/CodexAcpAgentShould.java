@@ -1,0 +1,158 @@
+package forge.ai.llm;
+
+import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionResponse;
+import forge.ai.LobbyPlayerAi;
+import forge.deck.Deck;
+import forge.game.Game;
+import forge.game.GameRules;
+import forge.game.GameType;
+import forge.game.Match;
+import forge.game.event.GameEventGameFinished;
+import forge.game.event.GameEventGameStarted;
+import forge.game.player.RegisteredPlayer;
+import forge.util.Localizer;
+import org.mockito.InOrder;
+import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
+
+public class CodexAcpAgentShould {
+    private static final Path WORKING_DIRECTORY = Path.of(".").toAbsolutePath().normalize();
+
+    @BeforeClass
+    public void initializeLanguage() {
+        Localizer.getInstance().initialize("en-US", "res/languages/");
+    }
+
+    private AcpSyncClient clientSelecting(String model) {
+        final AcpSyncClient client = mock(AcpSyncClient.class);
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session"));
+        final SessionConfigSelect option = SessionConfigSelect.builder()
+                .id("model").name("Model").currentValue(model)
+                .options(List.of(new SessionConfigSelectOption(model, model))).build();
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(option)));
+        return client;
+    }
+
+    @Test
+    public void initializeTheRequestedModelWithoutSendingAPrompt() {
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+        try {
+            Assert.assertEquals(agent.getSessionId(), "test-session");
+            final InOrder order = inOrder(client);
+            order.verify(client).initialize();
+            order.verify(client).newSession(new NewSessionRequest(WORKING_DIRECTORY.toString(), List.of()));
+            order.verify(client).setSessionConfigOption(
+                    SetSessionConfigOptionRequest.select("test-session", "model", "gpt-6.1-sol"));
+            verifyNoMoreInteractions(client);
+        } finally {
+            agent.close();
+        }
+        agent.close();
+        verify(client).close();
+        verifyNoMoreInteractions(client);
+    }
+
+    @Test
+    public void closeTheClientWhenTheRequestedModelIsNotSelected() {
+        final AcpSyncClient client = clientSelecting("another-model");
+        Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        verify(client).close();
+    }
+
+    @Test
+    public void closeTheClientWhenInitializationFails() {
+        final AcpSyncClient client = mock(AcpSyncClient.class);
+        doThrow(new IllegalStateException("Agent unavailable")).when(client).initialize();
+        Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        verify(client).initialize();
+        verify(client).close();
+        verifyNoMoreInteractions(client);
+    }
+
+    private Game newGame() {
+        final List<RegisteredPlayer> players = List.of(
+                new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("One", null)),
+                new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("Two", null)));
+        return new Match(new GameRules(GameType.Constructed), players, "ACP lifecycle").createGame();
+    }
+
+    private void startGame(Game game) {
+        game.fireEvent(new GameEventGameStarted(GameType.Constructed, game.getPlayers().get(0), game.getPlayers()));
+    }
+
+    @Test
+    public void initializeOnceAtGameStartAndCloseAtGameFinish() {
+        final Game game = newGame();
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final AtomicInteger starts = new AtomicInteger();
+        final PlayerControllerLlm controller = new PlayerControllerLlm(game, game.getPlayers().get(0),
+                game.getPlayers().get(0).getLobbyPlayer(), () -> {
+                    starts.incrementAndGet();
+                    return CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+                });
+        verifyNoInteractions(client);
+        try {
+            startGame(game);
+            startGame(game);
+            Assert.assertEquals(starts.get(), 1);
+            Assert.assertNull(controller.chooseSpellAbilityToPlay());
+        } finally {
+            game.fireEvent(new GameEventGameFinished());
+        }
+        game.fireEvent(new GameEventGameFinished());
+        startGame(game);
+        Assert.assertEquals(starts.get(), 1);
+        verify(client).close();
+    }
+
+    @Test
+    public void skipAgentsInSimulationCopies() {
+        final Game game = newGame();
+        game.markAsSimulationCopy();
+        final AtomicInteger starts = new AtomicInteger();
+        new PlayerControllerLlm(game, game.getPlayers().get(0), game.getPlayers().get(0).getLobbyPlayer(), () -> {
+            starts.incrementAndGet();
+            throw new AssertionError("A simulation must not start an external agent");
+        });
+        startGame(game);
+        game.fireEvent(new GameEventGameFinished());
+        Assert.assertEquals(starts.get(), 0);
+    }
+
+    @Test
+    public void keepPassingAndAvoidRepeatedStartupAfterAFailure() {
+        final Game game = newGame();
+        final AtomicInteger starts = new AtomicInteger();
+        final PlayerControllerLlm controller = new PlayerControllerLlm(game, game.getPlayers().get(0),
+                game.getPlayers().get(0).getLobbyPlayer(), () -> {
+                    starts.incrementAndGet();
+                    throw new IllegalStateException("Agent unavailable");
+                });
+        startGame(game);
+        startGame(game);
+        Assert.assertEquals(starts.get(), 1);
+        Assert.assertNull(controller.chooseSpellAbilityToPlay());
+        game.fireEvent(new GameEventGameFinished());
+    }
+}

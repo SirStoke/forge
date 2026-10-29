@@ -1,25 +1,66 @@
 package forge.ai.llm;
 
+import com.google.common.eventbus.Subscribe;
 import forge.LobbyPlayer;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
+import forge.game.event.GameEventGameFinished;
+import forge.game.event.GameEventGameStarted;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import org.tinylog.Logger;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Scaffold for a harness-controlled player. Other choices use the built-in AI
  * until their harness adapters are implemented.
  */
 public class PlayerControllerLlm extends PlayerControllerAi {
+    private final Supplier<CodexAcpAgent> agentFactory;
+    private CodexAcpAgent agent;
+    private boolean initializationAttempted;
+    private boolean finished;
+
     public PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer) {
+        this(game, player, lobbyPlayer, () -> CodexAcpAgent.start(Path.of(".")));
+    }
+
+    PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, Supplier<CodexAcpAgent> agentFactory) {
         super(game, player, lobbyPlayer);
+        this.agentFactory = agentFactory;
+        game.subscribeToEvents(this);
+    }
+
+    @Subscribe
+    public void onGameStarted(GameEventGameStarted event) {
+        // Copies may advance phases for simulations; they must not start agents.
+        if (getGame().isSimulationCopy() || initializationAttempted || finished) {
+            return;
+        }
+        initializationAttempted = true;
+        try {
+            agent = agentFactory.get();
+            Logger.info("Initialized Codex ACP for {} with {}", player.getName(), CodexAcpAgent.MODEL);
+        } catch (RuntimeException e) {
+            Logger.error(e, "Could not initialize Codex ACP for {}", player.getName());
+        }
+    }
+
+    @Subscribe
+    public void onGameFinished(GameEventGameFinished event) {
+        finished = true;
+        if (agent != null) {
+            agent.close();
+            agent = null;
+        }
     }
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
-        // Passing keeps the game moving while no harness is connected.
+        // The agent is initialized only; gameplay integration comes later.
         return null;
     }
 }
