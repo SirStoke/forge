@@ -3,6 +3,7 @@ package forge.ai;
 import java.util.Set;
 
 import forge.LobbyPlayer;
+import forge.ai.llm.PlayerControllerLlm;
 import forge.game.Game;
 import forge.game.player.IGameEntitiesFactory;
 import forge.game.player.Player;
@@ -14,9 +15,15 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     private String aiProfile = "";
     private boolean rotateProfileEachGame;
     private AIOption option;
+    private final AiEngine engine;
 
     public LobbyPlayerAi(String name, Set<AIOption> options) {
+        this(name, options, AiEngine.FORGE);
+    }
+
+    public LobbyPlayerAi(String name, Set<AIOption> options, AiEngine engine) {
         super(name);
+        this.engine = engine == null ? AiEngine.FORGE : engine;
         if (options != null && !options.isEmpty()) {
             option = options.iterator().next();
         }
@@ -35,6 +42,9 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     }
 
     private PlayerControllerAi createControllerFor(Player ai) {
+        if (engine == AiEngine.LLM) {
+            return new PlayerControllerLlm(ai.getGame(), ai, this);
+        }
         PlayerControllerAi result = new PlayerControllerAi(ai.getGame(), ai, this);
         result.getAi().setUseSimulation(option);
         return result;

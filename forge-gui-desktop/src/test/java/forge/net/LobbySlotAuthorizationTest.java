@@ -1,5 +1,6 @@
 package forge.net;
 
+import forge.ai.AiEngine;
 import forge.gamemodes.match.LobbySlotType;
 import forge.gamemodes.net.event.UpdateLobbyPlayerEvent;
 import org.testng.Assert;
@@ -19,11 +20,12 @@ public class LobbySlotAuthorizationTest {
     public void testClearsOnlyServerOwnedFields() {
         final UpdateLobbyPlayerEvent forged = UpdateLobbyPlayerEvent.create(
                 LobbySlotType.OPEN, "Mallory", 3, 4, 1, true, true,
-                Collections.emptySet(), "ai-profile");
+                Collections.emptySet(), "ai-profile", AiEngine.LLM);
 
         Assert.assertTrue(forged.clearServerOwnedFields(), "Server-owned fields were present");
         Assert.assertNull(forged.getType(), "Slot type is the server's to set");
         Assert.assertNull(forged.getAiProfile(), "AI profile does not belong to a REMOTE slot");
+        Assert.assertNull(forged.getAiEngine(), "AI engine is configured by the host");
 
         // Anything a client may legitimately change must survive untouched,
         // including isDevMode and isArchenemy, which are gated on mayEdit() and
@@ -33,7 +35,17 @@ public class LobbySlotAuthorizationTest {
         Assert.assertEquals(forged.getDevMode(), Boolean.TRUE);
         Assert.assertEquals(forged.getArchenemy(), Boolean.TRUE);
 
-        // A no-op for honest traffic, which carries none of the three.
+        // A no-op for honest traffic, which carries none of the server-owned fields.
         Assert.assertFalse(UpdateLobbyPlayerEvent.isReadyUpdate(true).clearServerOwnedFields());
+    }
+
+    @Test
+    public void testClearsEngineWhenItIsTheOnlyServerOwnedField() {
+        final UpdateLobbyPlayerEvent event = UpdateLobbyPlayerEvent.create(
+                null, null, -1, -1, -1, false, false, null, null, AiEngine.LLM);
+
+        Assert.assertTrue(event.clearServerOwnedFields());
+        Assert.assertNull(event.getAiEngine());
+        Assert.assertFalse(event.clearServerOwnedFields());
     }
 }

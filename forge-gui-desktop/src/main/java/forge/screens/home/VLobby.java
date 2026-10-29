@@ -447,6 +447,7 @@ public class VLobby implements ILobbyView {
                 panel.setIsDevMode(slot.isDevMode());
                 panel.setIsArchenemy(slot.isArchenemy());
                 panel.setUseAiSimulation(slot.getAiOptions());
+                panel.setAiEngine(slot.getAiEngine());
                 panel.setMayEdit(lobby.mayEdit(i));
                 panel.setMayControl(lobby.mayControl(i));
                 panel.setMayRemove(lobby.mayRemove(i));
@@ -613,7 +614,7 @@ public class VLobby implements ILobbyView {
                 panel.getTeam(), panel.isArchenemy(),
                 panel.isDevMode(),
                 panel.getAiOptions(),
-                panel.getAiProfile());
+                panel.getAiProfile(), panel.getAiEngine());
     }
 
     /** Builds the actual deck panel layouts for each player.

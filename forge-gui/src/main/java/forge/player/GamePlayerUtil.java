@@ -2,6 +2,7 @@ package forge.player;
 
 import forge.LobbyPlayer;
 import forge.ai.AIOption;
+import forge.ai.AiEngine;
 import forge.ai.AiProfileUtil;
 import forge.ai.LobbyPlayerAi;
 import forge.gui.GuiBase;
@@ -70,7 +71,11 @@ public final class GamePlayerUtil {
         return createAiPlayer(name, avatarIndex, sleeveIndex, options, "");
     }
     public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options, final String profileOverride) {
-        final LobbyPlayerAi player = new LobbyPlayerAi(name, options);
+        return createAiPlayer(name, avatarIndex, sleeveIndex, options, profileOverride, AiEngine.FORGE);
+    }
+
+    public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options, final String profileOverride, final AiEngine engine) {
+        final LobbyPlayerAi player = new LobbyPlayerAi(name, options, engine);
 
         // TODO: implement specific AI profiles for quest mode.
         String profile = "";

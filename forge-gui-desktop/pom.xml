@@ -414,6 +414,36 @@ try {
 
     <profiles>
         <profile>
+            <id>run-desktop</id>
+            <properties>
+                <desktop.args></desktop.args>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.6.4</version>
+                        <executions>
+                            <execution>
+                                <id>run-desktop</id>
+                                <phase>compile</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>${java.home}/bin/java</executable>
+                                    <workingDirectory>${project.basedir}</workingDirectory>
+                                    <classpathScope>runtime</classpathScope>
+                                    <commandlineArgs>${mandatory.java.args} ${addopen.java.args} -classpath %classpath forge.view.Main ${desktop.args}</commandlineArgs>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <properties>
                 <license.file.name>"LICENSE.txt"</license.file.name>
                 <changes.file.name>"CHANGES.txt"</changes.file.name>

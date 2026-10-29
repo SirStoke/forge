@@ -1,6 +1,7 @@
 package forge.screens.home;
 
 import forge.ai.AiProfileUtil;
+import forge.ai.AiEngine;
 import forge.deckchooser.FDeckChooser;
 
 import java.awt.*;
@@ -81,6 +82,9 @@ public class PlayerPanel extends FPanel {
     private FRadioButton radioOpen;
     private FCheckBox chkReady;
 
+    private final FLabel aiEngineLabel = new FLabel.Builder().text(localizer.getMessage("lblAiEngine") + ":").build();
+    private final FComboBoxWrapper<AiEngine> aiEngineComboBox = new FComboBoxWrapper<>();
+
     // AI picker
     private String aiProfile;
     private final FLabel aiPickerLabel = new FLabel.Builder().text(localizer.getMessage("lblAiPickerPanel") + ":").build();
@@ -158,11 +162,31 @@ public class PlayerPanel extends FPanel {
         this.add(radioHuman, "gapright 5px");
         this.add(radioAi, "wrap");
 
-        int cellY = 1;
+        aiEngineComboBox.addItem(AiEngine.FORGE);
+        aiEngineComboBox.addItem(AiEngine.LLM);
+        aiEngineComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int itemIndex,
+                                                           boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, itemIndex, isSelected, cellHasFocus);
+                setText(localizer.getMessage(value == AiEngine.LLM ? "lblLlmAi" : "lblForgeAi"));
+                return this;
+            }
+        });
+        setAiEngine(slot == null ? AiEngine.FORGE : slot.getAiEngine());
+        aiEngineComboBox.setToolTipText(localizer.getMessage("lblLlmAiScaffoldHint"));
+        this.add(aiEngineLabel, "cell 1 1, h 30px, hidemode 3");
+        aiEngineComboBox.addTo(this, "cell 2 1, spanx 4, growx, h 30px, hidemode 3, wrap");
+        aiEngineComboBox.addActionListener(e -> {
+            update();
+            lobby.firePlayerChangeListener(index);
+        });
+
+        int cellY = 2;
         if (prefs.getPrefBoolean(FPref.UI_ENABLE_AI_PICKER)) {
-            this.add(aiPickerLabel, "w 40px, h 30px");
+            this.add(aiPickerLabel, "cell 0 " + cellY + ", sx 2, ax right, w 40px, h 30px, hidemode 3");
             populateAiPickerComboBox();
-            aiPickerComboBox.addTo(this, "h 30px, pushx, growx, wrap");
+            aiPickerComboBox.addTo(this, "cell 2 " + cellY + ", spanx 4, h 30px, pushx, growx, hidemode 3, wrap");
             aiPickerComboBox.addActionListener(aiPickerListener);
             cellY += 1;
         }
@@ -180,35 +204,37 @@ public class PlayerPanel extends FPanel {
         teamComboBox.addTo(this, variantBtnConstraints + ", cell 2 " + cellY + ", growx, gaptop 5px, wrap");
         aeTeamComboBox.addTo(this, variantBtnConstraints + ", cell 2 " + cellY + ", growx, gaptop 5px, wrap");
 
+        final int variantRow = cellY + 1;
+
         createReadyButton();
         if (allowNetworking) {
-            this.add(radioOpen, "cell 4 4, ax left, sx 2");
-            this.add(chkReady, "cell 5 4, ax left, sx 2, wrap");
+            this.add(radioOpen, "cell 4 " + (variantRow + 2) + ", ax left, sx 2");
+            this.add(chkReady, "cell 5 " + (variantRow + 2) + ", ax left, sx 2, wrap");
         }
 
-        this.add(deckLabel, variantBtnConstraints + ", cell 0 3, sx 2, ax right");
-        this.add(deckBtn, variantBtnConstraints + ", cell 2 3, pushx, growx, wmax 100%-153px, h 30px, spanx 4, wrap");
+        this.add(deckLabel, variantBtnConstraints + ", cell 0 " + (variantRow + 1) + ", sx 2, ax right");
+        this.add(deckBtn, variantBtnConstraints + ", cell 2 " + (variantRow + 1) + ", pushx, growx, wmax 100%-153px, h 30px, spanx 4, wrap");
 
         addHandlersDeckSelector();
 
-        this.add(cmdLabel, variantBtnConstraints + ", cell 0 2, sx 2, ax right");
-        this.add(cmdDeckSelectorBtn, variantBtnConstraints + ", cell 2 2, pushx, growx, wmax 100%-153px, h 30px, spanx 4, wrap");
+        this.add(cmdLabel, variantBtnConstraints + ", cell 0 " + variantRow + ", sx 2, ax right");
+        this.add(cmdDeckSelectorBtn, variantBtnConstraints + ", cell 2 " + variantRow + ", pushx, growx, wmax 100%-153px, h 30px, spanx 4, wrap");
 
-        // Shares row 3 with the deck button, which is always hidden while a commander deck is selected
-        this.add(cmdPickLabel, variantBtnConstraints + ", cell 0 3, sx 2, ax right");
-        this.add(cmdPickBtn, variantBtnConstraints + ", cell 2 3, pushx, growx, wmax 100%-153px, h 30px, spanx 4, wrap");
+        // Shares a row with the deck button, which is hidden while a commander deck is selected.
+        this.add(cmdPickLabel, variantBtnConstraints + ", cell 0 " + (variantRow + 1) + ", sx 2, ax right");
+        this.add(cmdPickBtn, variantBtnConstraints + ", cell 2 " + (variantRow + 1) + ", pushx, growx, wmax 100%-153px, h 30px, spanx 4, wrap");
         cmdPickBtn.setToolTipText(localizer.getMessage("lblChooseCommanderHint"));
 
-        this.add(scmLabel, variantBtnConstraints + ", cell 0 4, sx 2, ax right");
-        this.add(scmDeckSelectorBtn, variantBtnConstraints + ", cell 2 4, growx, pushx");
-        this.add(scmDeckEditor, variantBtnConstraints + ", cell 3 4, sx 3, growx, wrap");
+        this.add(scmLabel, variantBtnConstraints + ", cell 0 " + (variantRow + 2) + ", sx 2, ax right");
+        this.add(scmDeckSelectorBtn, variantBtnConstraints + ", cell 2 " + (variantRow + 2) + ", growx, pushx");
+        this.add(scmDeckEditor, variantBtnConstraints + ", cell 3 " + (variantRow + 2) + ", sx 3, growx, wrap");
 
-        this.add(pchLabel, variantBtnConstraints + ", cell 0 5, sx 2, ax right");
-        this.add(pchDeckSelectorBtn, variantBtnConstraints + ", cell 2 5, growx, pushx");
-        this.add(pchDeckEditor, variantBtnConstraints + ", cell 3 5, sx 3, growx, wrap");
+        this.add(pchLabel, variantBtnConstraints + ", cell 0 " + (variantRow + 3) + ", sx 2, ax right");
+        this.add(pchDeckSelectorBtn, variantBtnConstraints + ", cell 2 " + (variantRow + 3) + ", growx, pushx");
+        this.add(pchDeckEditor, variantBtnConstraints + ", cell 3 " + (variantRow + 3) + ", sx 3, growx, wrap");
 
-        this.add(vgdLabel, variantBtnConstraints + ", cell 0 6, sx 2, ax right");
-        this.add(vgdSelectorBtn, variantBtnConstraints + ", cell 2 6, sx 4, growx, wrap");
+        this.add(vgdLabel, variantBtnConstraints + ", cell 0 " + (variantRow + 4) + ", sx 2, ax right");
+        this.add(vgdSelectorBtn, variantBtnConstraints + ", cell 2 " + (variantRow + 4) + ", sx 4, growx, wrap");
 
         addHandlersToVariantsControls();
 
@@ -251,7 +277,13 @@ public class PlayerPanel extends FPanel {
         txtPlayerName.setText(type == LobbySlotType.OPEN ? StringUtils.EMPTY : playerName);
         nameRandomiser.setEnabled(mayEdit);
 
-        boolean enableAiPicker = mayEdit && type == LobbySlotType.AI && prefs.getPrefBoolean(FPref.UI_ENABLE_AI_PICKER);
+        final boolean isAiSlot = type == LobbySlotType.AI;
+        aiEngineLabel.setVisible(isAiSlot);
+        aiEngineComboBox.setVisible(isAiSlot);
+        aiEngineComboBox.setEnabled(mayEdit && isAiSlot);
+
+        boolean enableAiPicker = mayEdit && isAiSlot && getAiEngine() == AiEngine.FORGE
+                && prefs.getPrefBoolean(FPref.UI_ENABLE_AI_PICKER);
         aiPickerLabel.setVisible(enableAiPicker);
         aiPickerComboBox.setVisible(enableAiPicker);
         aiPickerComboBox.setEnabled(enableAiPicker);
@@ -280,6 +312,7 @@ public class PlayerPanel extends FPanel {
 
         radioHuman.setSelected(type == LobbySlotType.LOCAL);
         radioAi.setSelected(type == LobbySlotType.AI);
+        radioAi.setComponentPopupMenu(getAiEngine() == AiEngine.FORGE ? radioAiUseSimulation : null);
         radioOpen.setSelected(type == LobbySlotType.OPEN);
 
         updateVariantControlsVisibility();
@@ -413,6 +446,21 @@ public class PlayerPanel extends FPanel {
 
     public boolean isAi() {
         return type == LobbySlotType.AI;
+    }
+
+    public AiEngine getAiEngine() {
+        final AiEngine selected = aiEngineComboBox.getSelectedItem();
+        return selected == null ? AiEngine.FORGE : selected;
+    }
+
+    public void setAiEngine(AiEngine engine) {
+        // Lobby refreshes must not publish another change event.
+        aiEngineComboBox.suppressActionListeners();
+        try {
+            aiEngineComboBox.setSelectedItem(engine == null ? AiEngine.FORGE : engine);
+        } finally {
+            aiEngineComboBox.unsuppressActionListeners();
+        }
     }
 
     public Set<AIOption> getAiOptions() {

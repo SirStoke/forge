@@ -1,6 +1,7 @@
 package forge.gamemodes.net.event;
 
 import forge.ai.AIOption;
+import forge.ai.AiEngine;
 import forge.deck.CardPool;
 import forge.deck.Deck;
 import forge.deck.DeckSection;
@@ -32,9 +33,15 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
     private String PlanarDeckName = null;
     private String DeckName = null;
     private String aiProfile = null;
+    private AiEngine aiEngine = null;
 
     public static UpdateLobbyPlayerEvent create(final LobbySlotType type, final String name, final int avatarIndex, final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isDevMode, final Set<AIOption> aiOptions, final String aiProfile) {
         return new UpdateLobbyPlayerEvent(type, name, avatarIndex, sleeveIndex, team, isArchenemy, isDevMode, aiOptions, aiProfile);
+    }
+    public static UpdateLobbyPlayerEvent create(final LobbySlotType type, final String name, final int avatarIndex, final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isDevMode, final Set<AIOption> aiOptions, final String aiProfile, final AiEngine aiEngine) {
+        final UpdateLobbyPlayerEvent event = create(type, name, avatarIndex, sleeveIndex, team, isArchenemy, isDevMode, aiOptions, aiProfile);
+        event.aiEngine = aiEngine;
+        return event;
     }
     public static UpdateLobbyPlayerEvent deckUpdate(final Deck deck) {
         return new UpdateLobbyPlayerEvent(deck);
@@ -145,12 +152,13 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
      * field added later.
      */
     public boolean clearServerOwnedFields() {
-        if (type == null && aiOptions == null && aiProfile == null) {
+        if (type == null && aiOptions == null && aiProfile == null && aiEngine == null) {
             return false;
         }
         type = null;
         aiOptions = null;
         aiProfile = null;
+        aiEngine = null;
         return true;
     }
 
@@ -208,6 +216,10 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
         return aiProfile;
     }
 
+    public AiEngine getAiEngine() {
+        return aiEngine;
+    }
+
     @Override
     public String toString() {
         final List<String> set = new ArrayList<>();
@@ -223,6 +235,7 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
         if (section != null) { set.add(section + "=" + (cards == null ? 0 : cards.countAll()) + " cards"); }
         if (DeckName != null) { set.add("deckName=" + LogSafe.forLog(DeckName)); }
         if (aiProfile != null) { set.add("aiProfile=" + LogSafe.forLog(aiProfile)); }
+        if (aiEngine != null) { set.add("aiEngine=" + aiEngine); }
         return "UpdateLobbyPlayer: " + String.join(", ", set);
     }
 }

@@ -464,13 +464,13 @@ public abstract class GameLobby implements IHasGameType {
             final int sleeve = slot.getSleeveIndex();
             final boolean isArchenemy = slot.isArchenemy();
             final int team = slot.getTeam();
-            final Set<AIOption> aiOptions = slot.getAiOptions(); // TODO: could AiOptions carry the choice of which AI is selected to play against?
+            final Set<AIOption> aiOptions = slot.getAiOptions();
 
             final boolean isAI = slot.getType() == LobbySlotType.AI;
             final LobbyPlayer lobbyPlayer;
             if (isAI) {
                 String aiProfileOverride = slot.getAiProfile();
-                lobbyPlayer = GamePlayerUtil.createAiPlayer(name, avatar, sleeve, aiOptions, aiProfileOverride);
+                lobbyPlayer = GamePlayerUtil.createAiPlayer(name, avatar, sleeve, aiOptions, aiProfileOverride, slot.getAiEngine());
             } else {
                 boolean setNameNow = false;
                 if (!hasNameBeenSet && slot.getType() == LobbySlotType.LOCAL) {

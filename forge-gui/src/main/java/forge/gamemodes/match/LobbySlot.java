@@ -2,6 +2,7 @@ package forge.gamemodes.match;
 
 import com.google.common.collect.ImmutableSet;
 import forge.ai.AIOption;
+import forge.ai.AiEngine;
 import forge.deck.Deck;
 import forge.gamemodes.net.event.UpdateLobbyPlayerEvent;
 
@@ -29,6 +30,7 @@ public final class LobbySlot implements Serializable {
     private String PlanarDeckName;
     private String DeckName;
     private String aiProfile;
+    private AiEngine aiEngine = AiEngine.FORGE;
 
     public LobbySlot(final LobbySlotType type, final String name, final int avatarIndex, final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isReady, final Set<AIOption> aiOptions) {
         this.type = type;
@@ -53,6 +55,7 @@ public final class LobbySlot implements Serializable {
         changed |= setIfChanged(data.getReady(),           this.isReady,        this::setIsReady);
         changed |= setIfChanged(data.getDevMode(),         this.isDevMode,      this::setIsDevMode);
         changed |= setIfChanged(data.getAiOptions(),       this.aiOptions,      this::setAiOptions);
+        changed |= setIfChanged(data.getAiEngine(),        getAiEngine(),       this::setAiEngine);
         changed |= setIfChanged(data.getSchemeDeckName(),  this.SchemeDeckName, this::setSchemeDeckName);
         changed |= setIfChanged(data.getAvatarVanguard(),  this.AvatarVanguard, this::setAvatarVanguard);
         changed |= setIfChanged(data.getPlanarDeckName(),  this.PlanarDeckName, this::setPlanarDeckName);
@@ -167,5 +170,14 @@ public final class LobbySlot implements Serializable {
     }
     public void setAiProfile(String aiProfile) {
         this.aiProfile = aiProfile;
+    }
+
+    public AiEngine getAiEngine() {
+        // Older serialized slots have no engine field.
+        return aiEngine == null ? AiEngine.FORGE : aiEngine;
+    }
+
+    public void setAiEngine(AiEngine aiEngine) {
+        this.aiEngine = aiEngine == null ? AiEngine.FORGE : aiEngine;
     }
 }
