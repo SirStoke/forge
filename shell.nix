@@ -6,6 +6,7 @@ in
 pkgs.mkShell {
   packages = [
     jdk
+    pkgs.pnpm
     (pkgs.maven.override { jdk_headless = jdk; })
   ];
 

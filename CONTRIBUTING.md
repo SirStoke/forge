@@ -36,6 +36,18 @@
 - Go to the project location on your machine. Run Maven to download all dependencies and build a snapshot.
   - Example for Windows & Linux: `mvn -U -B clean -P windows-linux install`
 
+To compile and run the desktop application directly from the checkout, execute
+this command from the repository root:
+
+```sh
+mvn -pl forge-gui-desktop -am -Prun-desktop compile
+```
+
+This builds the required modules and launches Forge using their compiled classes,
+without packaging or installing them. The profile sets the Java options and
+working directory needed by the desktop application. To pass application
+arguments, add `-Ddesktop.args="..."`.
+
 ### IntelliJ
 
 IntelliJ is the recommended IDE for Forge development. Quick start guide for [setting up the Forge project within IntelliJ](https://github.com/Card-Forge/forge/wiki/IntelliJ-setup).

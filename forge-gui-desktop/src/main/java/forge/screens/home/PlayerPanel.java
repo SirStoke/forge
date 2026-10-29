@@ -174,7 +174,6 @@ public class PlayerPanel extends FPanel {
             }
         });
         setAiEngine(slot == null ? AiEngine.FORGE : slot.getAiEngine());
-        aiEngineComboBox.setToolTipText(localizer.getMessage("lblLlmAiScaffoldHint"));
         this.add(aiEngineLabel, "cell 1 1, h 30px, hidemode 3");
         aiEngineComboBox.addTo(this, "cell 2 1, spanx 4, growx, h 30px, hidemode 3, wrap");
         aiEngineComboBox.addActionListener(e -> {
