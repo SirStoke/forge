@@ -34,6 +34,11 @@
             <version>3.6.1</version>
         </dependency>
         <dependency>
+            <groupId>com.samskivert</groupId>
+            <artifactId>jmustache</artifactId>
+            <version>1.16</version>
+        </dependency>
+        <dependency>
             <groupId>com.agentclientprotocol</groupId>
             <artifactId>acp-core</artifactId>
             <version>${acp.version}</version>

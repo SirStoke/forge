@@ -4,6 +4,7 @@ import com.agentclientprotocol.sdk.client.AcpSyncClient;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
@@ -14,9 +15,11 @@ import forge.game.Game;
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
+import forge.game.card.Card;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
 import forge.game.player.RegisteredPlayer;
+import forge.game.zone.ZoneType;
 import forge.util.Localizer;
 import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
@@ -132,6 +135,61 @@ public class CodexAcpAgentShould {
         startGame(game);
         Assert.assertEquals(starts.get(), 1);
         verify(client).close();
+    }
+
+    @Test
+    public void sendMulliganChoicesWithTheCurrentHandWithoutApplyingTheResponse() {
+        final Game game = newGame();
+        final var player = game.getPlayers().get(0);
+        final var opponent = game.getPlayers().get(1);
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
+                () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        for (String name : List.of("Island", "Island", "Fire & Ice <test>")) {
+            final Card card = new Card(game.nextCardId(), game);
+            card.setOwner(player);
+            card.setName(name);
+            player.getZone(ZoneType.Hand).add(card);
+        }
+        final Card hiddenCard = new Card(game.nextCardId(), game);
+        hiddenCard.setOwner(opponent);
+        hiddenCard.setName("Hidden opponent card");
+        opponent.getZone(ZoneType.Hand).add(hiddenCard);
+
+        startGame(game);
+        try {
+            Assert.assertTrue(controller.mulliganKeepHand(opponent, 1),
+                    "The built-in AI still decides whether to keep");
+            final ArgumentCaptor<PromptRequest> request = ArgumentCaptor.forClass(PromptRequest.class);
+            verify(client).prompt(request.capture());
+            Assert.assertEquals(request.getValue().sessionId(), "test-session");
+            final String text = request.getValue().text();
+            Assert.assertTrue(text.contains("Starting player: Two"));
+            Assert.assertTrue(text.contains("Cards to return for this mulligan: 1"));
+            Assert.assertTrue(text.contains("- Island\n- Island\n- Fire & Ice <test>"));
+            Assert.assertTrue(text.contains("- Keep:"));
+            Assert.assertTrue(text.contains("- Mulligan:"));
+            Assert.assertFalse(text.contains("Hidden opponent card"));
+        } finally {
+            game.fireEvent(new GameEventGameFinished());
+        }
+    }
+
+    @Test
+    public void useTheBuiltInMulliganDecisionWhenPromptingFails() {
+        final Game game = newGame();
+        final var player = game.getPlayers().get(0);
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        doThrow(new IllegalStateException("Agent unavailable")).when(client).prompt(any());
+        final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
+                () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        startGame(game);
+        try {
+            Assert.assertTrue(controller.mulliganKeepHand(player, 0));
+            verify(client).prompt(any());
+        } finally {
+            game.fireEvent(new GameEventGameFinished());
+        }
     }
 
     @Test

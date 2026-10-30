@@ -7,6 +7,7 @@ import com.agentclientprotocol.sdk.client.transport.StdioAcpClientTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema.Implementation;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
 import forge.util.BuildInfo;
@@ -16,7 +17,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** An initialized Codex session with an empty MCP endpoint; no prompts are sent yet. */
+/** A Codex session with an MCP endpoint; decisions are not applied to the game yet. */
 final class CodexAcpAgent implements AutoCloseable {
     static final String MODEL = "gpt-6.1-sol";
     private static final String ADAPTER = "@agentclientprotocol/codex-acp@2.4.0";
@@ -79,6 +80,10 @@ final class CodexAcpAgent implements AutoCloseable {
 
     String getSessionId() {
         return sessionId;
+    }
+
+    void prompt(String text) {
+        client.prompt(PromptRequest.text(sessionId, text));
     }
 
     @Override

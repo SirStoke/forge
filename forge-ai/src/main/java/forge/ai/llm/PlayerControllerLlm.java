@@ -59,8 +59,21 @@ public class PlayerControllerLlm extends PlayerControllerAi {
     }
 
     @Override
+    public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn) {
+        if (agent != null && !getGame().isSimulationCopy()) {
+            try {
+                agent.prompt(MulliganPrompt.render(player, firstPlayer, cardsToReturn));
+            } catch (RuntimeException e) {
+                Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
+            }
+        }
+        // Keep using the built-in decision until the MCP submission tool exists.
+        return super.mulliganKeepHand(firstPlayer, cardsToReturn);
+    }
+
+    @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
-        // The agent is initialized only; gameplay integration comes later.
+        // Playing spells through the agent comes later.
         return null;
     }
 }
