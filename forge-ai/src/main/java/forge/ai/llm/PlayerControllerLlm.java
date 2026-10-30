@@ -7,6 +7,7 @@ import forge.game.Game;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
 import forge.game.player.Player;
+import forge.game.player.PlaySpellAbility;
 import forge.game.spellability.SpellAbility;
 import org.tinylog.Logger;
 
@@ -94,7 +95,48 @@ public class PlayerControllerLlm extends PlayerControllerAi {
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
-        // Playing spells through the agent comes later.
+        if (agent == null || getGame().isSimulationCopy()) {
+            return null;
+        }
+        try {
+            final var options = HandPlayOptions.available(player);
+            if (options.isEmpty()) {
+                return null;
+            }
+            final var decision = new CompletableFuture<PriorityDecision>();
+            final var callback = agent.priorityDecision();
+            final String requestId = callback.register(choice -> {
+                if (choice instanceof PriorityDecision.PlayCard play && options.containsKey(play)
+                        || choice instanceof PriorityDecision.Pass) {
+                    return;
+                }
+                throw new IllegalArgumentException("Choose a cardId and abilityId pair from the priority prompt, or pass.");
+            }, choice -> {
+                // Only publish IDs here; all game objects stay on the game thread.
+                decision.complete(choice);
+                return "Priority decision accepted. Finish your response so Forge can execute it.";
+            });
+            try {
+                agent.prompt(PriorityPrompt.render(player, requestId, options));
+            } catch (RuntimeException e) {
+                Logger.error(e, "Could not request a priority decision for {}", player.getName());
+            } finally {
+                if (callback.cancel(requestId)) {
+                    decision.complete(new PriorityDecision.Pass());
+                }
+            }
+            if (decision.join() instanceof PriorityDecision.PlayCard play) {
+                return List.of(options.get(play));
+            }
+        } catch (RuntimeException e) {
+            Logger.error(e, "Could not choose a play for {}; passing priority", player.getName());
+        }
         return null;
+    }
+
+    @Override
+    public boolean playChosenSpellAbility(SpellAbility ability) {
+        // This flow requests targets after selecting the spell; inherited AI hooks handle those choices for now.
+        return PlaySpellAbility.playSpellAbility(this, player, ability);
     }
 }

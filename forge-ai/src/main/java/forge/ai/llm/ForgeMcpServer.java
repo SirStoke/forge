@@ -5,6 +5,8 @@ import forge.ai.llm.tools.CardDetails;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveBattlefield;
+import forge.ai.llm.tools.PlayCardFromHand;
+import forge.ai.llm.tools.PassPriority;
 import forge.game.player.Player;
 import forge.util.BuildInfo;
 import forge.util.FileUtil;
@@ -26,6 +28,7 @@ final class ForgeMcpServer implements AutoCloseable {
     private final McpSyncServer mcp;
     private final Path directory;
     private final CallbackOnce<Boolean, String> mulliganDecision = new CallbackOnce<>();
+    private final CallbackOnce<PriorityDecision, String> priorityDecision = new CallbackOnce<>();
     private final GameObserver game;
 
     private ForgeMcpServer(Player viewer) throws IOException {
@@ -42,6 +45,10 @@ final class ForgeMcpServer implements AutoCloseable {
         tools.register(ObserveStack::schema, ObserveStack::compile, request -> game.read().stack());
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
         tools.register(ObserveBattlefield::schema, ObserveBattlefield::compile, request -> game.read().battlefield());
+        tools.register(PlayCardFromHand::schema, PlayCardFromHand::compile, request -> priorityDecision.call(
+                request.requestId(), new PriorityDecision.PlayCard(request.cardId(), request.abilityId())));
+        tools.register(PassPriority::schema, PassPriority::compile,
+                request -> priorityDecision.call(request.requestId(), new PriorityDecision.Pass()));
 
         final var transport = HttpServletStreamableServerTransportProvider.builder().build();
         mcp = McpServer.sync(transport)
@@ -80,6 +87,10 @@ final class ForgeMcpServer implements AutoCloseable {
 
     CallbackOnce<Boolean, String> mulliganDecision() {
         return mulliganDecision;
+    }
+
+    CallbackOnce<PriorityDecision, String> priorityDecision() {
+        return priorityDecision;
     }
 
     void refreshGameState() {

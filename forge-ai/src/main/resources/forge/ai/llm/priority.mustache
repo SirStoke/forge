@@ -1,0 +1,17 @@
+You are playing Magic: The Gathering as {{playerName}} and have priority.
+Request ID: {{requestId}}
+Turn player: {{turnPlayerName}}
+Phase: {{phase}}
+
+Available plays from your hand:
+{{#options}}
+- {{name}}: cardId={{cardId}}, abilityId={{abilityId}}. {{description}}
+{{/options}}
+
+You may use get_hand, get_battlefield, get_stack, and get_card_details to inspect the game before deciding.
+Choose one of the listed plays by calling play_card_from_hand with requestId "{{requestId}}", cardId, and abilityId.
+Alternatively, call pass_priority with requestId "{{requestId}}".
+
+Submit exactly one decision, then finish this response so Forge can execute it.
+The built-in AI handles follow-up choices such as targets and payment for now.
+A text reply does not submit a decision.

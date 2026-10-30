@@ -117,6 +117,10 @@ final class CodexAcpAgent implements AutoCloseable {
         return mcpServer.mulliganDecision();
     }
 
+    CallbackOnce<PriorityDecision, String> priorityDecision() {
+        return mcpServer.priorityDecision();
+    }
+
     void prompt(String text) {
         mcpServer.refreshGameState();
         conversation.flush();

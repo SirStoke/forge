@@ -5,6 +5,8 @@ import forge.ai.llm.tools.CardDetails;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveBattlefield;
+import forge.ai.llm.tools.PlayCardFromHand;
+import forge.ai.llm.tools.PassPriority;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -34,7 +36,7 @@ public class ForgeMcpServerShould {
                 Assert.assertEquals(client.initialize().serverInfo().name(), "mtg-forge");
                 Assert.assertEquals(client.listTools().tools().stream().map(tool -> tool.name())
                         .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, ObserveStack.NAME,
-                                ObserveHand.NAME, ObserveBattlefield.NAME));
+                                ObserveHand.NAME, ObserveBattlefield.NAME, PlayCardFromHand.NAME, PassPriority.NAME));
             }
         }
 

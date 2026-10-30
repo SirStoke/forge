@@ -12,6 +12,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class CallbackOnceShould {
     @Test
+    public void keepTheRequestPendingWhenValidationRejectsTheInput() {
+        final var callback = new CallbackOnce<Integer, Integer>();
+        final AtomicInteger invocations = new AtomicInteger();
+        final String request = callback.register(value -> {
+            if (value < 0) {
+                throw new IllegalArgumentException("Must be nonnegative");
+            }
+        }, value -> invocations.incrementAndGet());
+        Assert.expectThrows(IllegalArgumentException.class, () -> callback.call(request, -1));
+        Assert.assertEquals(invocations.get(), 0);
+        Assert.assertEquals(callback.call(request, 42), Integer.valueOf(1));
+        Assert.expectThrows(IllegalStateException.class, () -> callback.call(request, 42));
+    }
+
+    @Test
     public void preserveThePendingCallbackWhenRegistrationOrAnOldRequestIsRejected() {
         final var callback = new CallbackOnce<String, Integer>();
         final String first = callback.register(String::length);

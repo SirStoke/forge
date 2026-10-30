@@ -3,6 +3,7 @@ package forge.ai.llm;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /** One pending callback, removed atomically before invocation on the caller's thread. */
 public final class CallbackOnce<I, O> {
@@ -10,7 +11,13 @@ public final class CallbackOnce<I, O> {
 
     /** Register a callback without overwriting an unanswered request. */
     public String register(Callback<I, O> callback) {
-        final var request = new Pending<I, O>(UUID.randomUUID().toString(), Objects.requireNonNull(callback));
+        return register(input -> { }, callback);
+    }
+
+    /** The validator must be thread-safe and must not mutate game state. Rejected inputs leave the request pending. */
+    public String register(Consumer<I> validator, Callback<I, O> callback) {
+        final var request = new Pending<I, O>(UUID.randomUUID().toString(),
+                Objects.requireNonNull(validator), Objects.requireNonNull(callback));
         if (!pending.compareAndSet(null, request)) {
             throw new IllegalStateException("A callback is already pending");
         }
@@ -20,7 +27,11 @@ public final class CallbackOnce<I, O> {
     /** Consume the matching request at most once, even if its callback throws. */
     public O call(String requestId, I input) {
         final var request = pending.get();
-        if (request == null || !request.id().equals(requestId) || !pending.compareAndSet(request, null)) {
+        if (request == null || !request.id().equals(requestId)) {
+            throw new IllegalStateException("No pending callback for request: " + requestId);
+        }
+        request.validator().accept(input);
+        if (!pending.compareAndSet(request, null)) {
             throw new IllegalStateException("No pending callback for request: " + requestId);
         }
         return request.callback().call(input);
@@ -32,6 +43,6 @@ public final class CallbackOnce<I, O> {
         return request != null && request.id().equals(requestId) && pending.compareAndSet(request, null);
     }
 
-    private record Pending<I, O>(String id, Callback<I, O> callback) {
+    private record Pending<I, O>(String id, Consumer<I> validator, Callback<I, O> callback) {
     }
 }
