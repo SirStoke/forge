@@ -14,6 +14,7 @@
 
     <properties>
         <acp.version>0.80.0</acp.version>
+        <mcp.version>2.0.1</mcp.version>
     </properties>
 
     <dependencies>
@@ -41,6 +42,21 @@
             <groupId>com.agentclientprotocol</groupId>
             <artifactId>acp-json-jackson2</artifactId>
             <version>${acp.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-core</artifactId>
+            <version>${mcp.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>${mcp.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-core</artifactId>
+            <version>11.0.27</version>
         </dependency>
     </dependencies>
 
