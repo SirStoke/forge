@@ -43,6 +43,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -67,7 +68,7 @@ public class CodexAcpAgentShould {
     }
 
     @Test
-    public void initializeTheRequestedModelWithoutSendingAPrompt() {
+    public void sendTheOpeningPromptAfterInitializingTheSessionAndModel() {
         final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
         final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
         try {
@@ -83,6 +84,13 @@ public class CodexAcpAgentShould {
             Assert.assertTrue(mcp.url().matches("http://127\\.0\\.0\\.1:[0-9]+/mcp"));
             order.verify(client).setSessionConfigOption(
                     SetSessionConfigOptionRequest.select("test-session", "model", "gpt-6.1-sol"));
+            final ArgumentCaptor<PromptRequest> opening = ArgumentCaptor.forClass(PromptRequest.class);
+            order.verify(client).prompt(opening.capture());
+            Assert.assertEquals(opening.getValue().sessionId(), "test-session");
+            Assert.assertTrue(opening.getValue().text().contains("AI player for Magic: The Gathering"));
+            Assert.assertTrue(opening.getValue().text().contains("complete list of MCP tools exposed by mtg-forge"));
+            Assert.assertTrue(opening.getValue().text().contains("resolve any deferred tools"));
+            Assert.assertTrue(opening.getValue().text().contains("follow all pagination"));
             verifyNoMoreInteractions(client);
         } finally {
             agent.close();
@@ -107,6 +115,14 @@ public class CodexAcpAgentShould {
         verify(client).initialize();
         verify(client).close();
         verifyNoMoreInteractions(client);
+    }
+
+    @Test
+    public void closeTheAgentWhenTheOpeningPromptFails() {
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        doThrow(new IllegalStateException("Opening prompt failed")).when(client).prompt(any());
+        Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        verify(client).close();
     }
 
     private Game newGame() {
@@ -135,6 +151,7 @@ public class CodexAcpAgentShould {
             startGame(game);
             startGame(game);
             Assert.assertEquals(starts.get(), 1);
+            verify(client).prompt(any());
             Assert.assertNull(controller.chooseSpellAbilityToPlay());
         } finally {
             game.fireEvent(new GameEventGameFinished());
@@ -169,7 +186,7 @@ public class CodexAcpAgentShould {
             Assert.assertTrue(controller.mulliganKeepHand(opponent, 1),
                     "The built-in AI still decides whether to keep");
             final ArgumentCaptor<PromptRequest> request = ArgumentCaptor.forClass(PromptRequest.class);
-            verify(client).prompt(request.capture());
+            verify(client, times(2)).prompt(request.capture());
             Assert.assertEquals(request.getValue().sessionId(), "test-session");
             final String text = request.getValue().text();
             Assert.assertTrue(text.contains("Starting player: Two"));
@@ -238,15 +255,15 @@ public class CodexAcpAgentShould {
         final Game game = newGame();
         final var player = game.getPlayers().get(0);
         final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
-        doThrow(new IllegalStateException("Agent unavailable")).when(client).prompt(any());
         final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+        doThrow(new IllegalStateException("Agent unavailable")).when(client).prompt(any());
         final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
                 () -> agent);
         startGame(game);
         try {
             Assert.assertTrue(controller.mulliganKeepHand(player, 0));
             final ArgumentCaptor<PromptRequest> request = ArgumentCaptor.forClass(PromptRequest.class);
-            verify(client).prompt(request.capture());
+            verify(client, times(2)).prompt(request.capture());
             Assert.expectThrows(IllegalStateException.class,
                     () -> agent.mulliganDecision().call(mulliganRequestId(request.getValue()), false));
         } finally {

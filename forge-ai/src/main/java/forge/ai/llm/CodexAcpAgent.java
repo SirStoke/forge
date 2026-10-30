@@ -21,6 +21,7 @@ import org.tinylog.Logger;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -70,6 +71,7 @@ final class CodexAcpAgent implements AutoCloseable {
     private static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory,
                                             ConversationLog conversation) {
         ForgeMcpServer mcpServer = null;
+        CodexAcpAgent agent = null;
         try {
             mcpServer = ForgeMcpServer.start();
             client.initialize();
@@ -83,13 +85,19 @@ final class CodexAcpAgent implements AutoCloseable {
             if (!modelSelected) {
                 throw new IllegalStateException("Codex did not select the requested model: " + MODEL);
             }
-            return new CodexAcpAgent(client, sessionId, mcpServer, conversation);
+            agent = new CodexAcpAgent(client, sessionId, mcpServer, conversation);
+            agent.prompt(PromptTemplates.load("conversation-start.mustache").execute(Map.of()));
+            return agent;
         } catch (RuntimeException e) {
-            try {
-                client.close();
-            } finally {
-                if (mcpServer != null) {
-                    mcpServer.close();
+            if (agent != null) {
+                agent.close();
+            } else {
+                try {
+                    client.close();
+                } finally {
+                    if (mcpServer != null) {
+                        mcpServer.close();
+                    }
                 }
             }
             throw e;
