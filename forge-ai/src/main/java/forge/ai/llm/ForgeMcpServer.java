@@ -1,6 +1,7 @@
 package forge.ai.llm;
 
 import forge.ai.llm.tools.Mulligan;
+import forge.ai.llm.tools.CardDetails;
 import forge.util.BuildInfo;
 import forge.util.FileUtil;
 import io.modelcontextprotocol.server.McpServer;
@@ -31,6 +32,7 @@ final class ForgeMcpServer implements AutoCloseable {
         final ToolRepository tools = new ToolRepository();
         tools.register(Mulligan::schema, Mulligan::compile,
                 mulligan -> mulliganDecision.call(mulligan.requestId(), mulligan.keep()));
+        tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
 
         final var transport = HttpServletStreamableServerTransportProvider.builder().build();
         mcp = McpServer.sync(transport)

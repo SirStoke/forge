@@ -1,6 +1,7 @@
 package forge.ai.llm;
 
 import forge.ai.llm.tools.Mulligan;
+import forge.ai.llm.tools.CardDetails;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -14,11 +15,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ForgeMcpServerShould {
     @Test
-    public void advertiseTheMulliganToolAndReleaseThePortOnClose() {
+    public void advertiseTheToolsAndReleaseThePortOnClose() {
         final String url;
         try (ForgeMcpServer server = ForgeMcpServer.start()) {
             url = server.getUrl();
@@ -26,8 +29,8 @@ public class ForgeMcpServerShould {
                     .builder(URI.create(url).resolve("/").toString()).endpoint("/mcp").build();
             try (var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
                 Assert.assertEquals(client.initialize().serverInfo().name(), "mtg-forge");
-                Assert.assertEquals(client.listTools().tools().size(), 1);
-                Assert.assertEquals(client.listTools().tools().get(0).name(), Mulligan.NAME);
+                Assert.assertEquals(client.listTools().tools().stream().map(tool -> tool.name())
+                        .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME));
             }
         }
 
