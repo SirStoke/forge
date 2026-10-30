@@ -1,5 +1,6 @@
 package forge.ai.llm;
 
+import forge.ai.llm.tools.Mulligan;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -26,7 +27,7 @@ public class ForgeMcpServerShould {
             try (var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
                 Assert.assertEquals(client.initialize().serverInfo().name(), "mtg-forge");
                 Assert.assertEquals(client.listTools().tools().size(), 1);
-                Assert.assertEquals(client.listTools().tools().get(0).name(), ForgeMcpServer.MULLIGAN_TOOL);
+                Assert.assertEquals(client.listTools().tools().get(0).name(), Mulligan.NAME);
             }
         }
 
@@ -43,7 +44,7 @@ public class ForgeMcpServerShould {
                     .builder(URI.create(server.getUrl()).resolve("/").toString()).endpoint("/mcp").build();
             try (var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
                 client.initialize();
-                Assert.assertTrue(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertTrue(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", "missing", "keep", true))).isError());
 
                 final AtomicInteger invocations = new AtomicInteger();
@@ -52,20 +53,20 @@ public class ForgeMcpServerShould {
                     invocations.incrementAndGet();
                     return "Accepted";
                 });
-                Assert.assertTrue(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertTrue(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", first, "keep", "false"))).isError());
-                Assert.assertTrue(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertTrue(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", "stale", "keep", true))).isError());
-                Assert.assertFalse(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertFalse(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", first, "keep", false))).isError());
                 Assert.assertEquals(invocations.get(), 1);
 
                 final String second = server.mulliganDecision().register(keep -> "Accepted again");
-                Assert.assertTrue(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertTrue(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", first, "keep", true))).isError());
-                Assert.assertFalse(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertFalse(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", second, "keep", true))).isError());
-                Assert.assertTrue(client.callTool(new CallToolRequest(ForgeMcpServer.MULLIGAN_TOOL,
+                Assert.assertTrue(client.callTool(new CallToolRequest(Mulligan.NAME,
                         Map.of("requestId", second, "keep", true))).isError());
             }
         }
