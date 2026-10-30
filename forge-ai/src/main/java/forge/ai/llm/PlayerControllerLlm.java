@@ -26,7 +26,7 @@ public class PlayerControllerLlm extends PlayerControllerAi {
     private boolean finished;
 
     public PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer) {
-        this(game, player, lobbyPlayer, () -> CodexAcpAgent.start(Path.of(".")));
+        this(game, player, lobbyPlayer, () -> CodexAcpAgent.start(Path.of("."), player));
     }
 
     PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, Supplier<CodexAcpAgent> agentFactory) {

@@ -16,6 +16,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SessionNotification;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.TextContent;
 import forge.util.BuildInfo;
+import forge.game.player.Player;
 import org.tinylog.Logger;
 
 import java.nio.file.Path;
@@ -47,7 +48,7 @@ final class CodexAcpAgent implements AutoCloseable {
         Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
 
-    static CodexAcpAgent start(Path workingDirectory) {
+    static CodexAcpAgent start(Path workingDirectory, Player player) {
         final ConversationLog conversation = new ConversationLog();
         final AgentParameters parameters = AgentParameters.builder("pnpm")
                 .args("dlx", ADAPTER)
@@ -61,19 +62,23 @@ final class CodexAcpAgent implements AutoCloseable {
                 .requestTimeout(Duration.ofMinutes(2))
                 .promptTimeout(Duration.ofMinutes(2))
                 .build();
-        return initialize(client, workingDirectory, conversation);
+        return initialize(client, workingDirectory, conversation, player);
     }
 
     static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory) {
-        return initialize(client, workingDirectory, new ConversationLog());
+        return initialize(client, workingDirectory, null);
+    }
+
+    static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory, Player player) {
+        return initialize(client, workingDirectory, new ConversationLog(), player);
     }
 
     private static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory,
-                                            ConversationLog conversation) {
+                                            ConversationLog conversation, Player player) {
         ForgeMcpServer mcpServer = null;
         CodexAcpAgent agent = null;
         try {
-            mcpServer = ForgeMcpServer.start();
+            mcpServer = ForgeMcpServer.start(player);
             client.initialize();
             final String sessionId = client.newSession(new NewSessionRequest(
                     workingDirectory.toAbsolutePath().normalize().toString(),
@@ -113,6 +118,7 @@ final class CodexAcpAgent implements AutoCloseable {
     }
 
     void prompt(String text) {
+        mcpServer.refreshStack();
         conversation.flush();
         ConversationLog.log(sessionId, "USER", text);
         try {

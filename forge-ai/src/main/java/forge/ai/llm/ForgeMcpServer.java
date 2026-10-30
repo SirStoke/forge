@@ -2,6 +2,8 @@ package forge.ai.llm;
 
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
+import forge.ai.llm.tools.ObserveStack;
+import forge.game.player.Player;
 import forge.util.BuildInfo;
 import forge.util.FileUtil;
 import io.modelcontextprotocol.server.McpServer;
@@ -22,17 +24,20 @@ final class ForgeMcpServer implements AutoCloseable {
     private final McpSyncServer mcp;
     private final Path directory;
     private final CallbackOnce<Boolean, String> mulliganDecision = new CallbackOnce<>();
+    private final StackObserver stack;
 
-    private ForgeMcpServer() throws IOException {
+    private ForgeMcpServer(Player viewer) throws IOException {
         directory = Files.createTempDirectory("forge-mcp-");
         tomcat.setBaseDir(directory.toString());
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("address", "127.0.0.1");
+        stack = new StackObserver(viewer);
 
         final ToolRepository tools = new ToolRepository();
         tools.register(Mulligan::schema, Mulligan::compile,
                 mulligan -> mulliganDecision.call(mulligan.requestId(), mulligan.keep()));
         tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
+        tools.register(ObserveStack::schema, ObserveStack::compile, request -> stack.read());
 
         final var transport = HttpServletStreamableServerTransportProvider.builder().build();
         mcp = McpServer.sync(transport)
@@ -47,8 +52,12 @@ final class ForgeMcpServer implements AutoCloseable {
     }
 
     static ForgeMcpServer start() {
+        return start(null);
+    }
+
+    static ForgeMcpServer start(Player viewer) {
         try {
-            final ForgeMcpServer server = new ForgeMcpServer();
+            final ForgeMcpServer server = new ForgeMcpServer(viewer);
             try {
                 server.tomcat.start();
                 return server;
@@ -69,8 +78,13 @@ final class ForgeMcpServer implements AutoCloseable {
         return mulliganDecision;
     }
 
+    void refreshStack() {
+        stack.refresh();
+    }
+
     @Override
     public void close() {
+        stack.close();
         try {
             mcp.close();
         } finally {

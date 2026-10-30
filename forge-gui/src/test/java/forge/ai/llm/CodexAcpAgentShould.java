@@ -10,6 +10,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionResponse;
 import forge.ai.LobbyPlayerAi;
+import forge.ai.llm.tools.ObserveStack;
 import forge.deck.Deck;
 import forge.game.Game;
 import forge.game.GameRules;
@@ -24,6 +25,8 @@ import forge.util.Localizer;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
+import io.modelcontextprotocol.json.McpJsonDefaults;
 import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
 import org.testng.Assert;
@@ -123,6 +126,33 @@ public class CodexAcpAgentShould {
         doThrow(new IllegalStateException("Opening prompt failed")).when(client).prompt(any());
         Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
         verify(client).close();
+    }
+
+    @Test
+    public void exposeTheStackWhileTheOpeningAcpPromptIsRunning() {
+        final Game game = newGame();
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final AtomicReference<String> url = new AtomicReference<>();
+        when(client.newSession(any())).thenAnswer(invocation -> {
+            final NewSessionRequest request = invocation.getArgument(0);
+            url.set(((McpServerHttp) request.mcpServers().get(0)).url());
+            return new NewSessionResponse("test-session");
+        });
+        when(client.prompt(any())).thenAnswer(invocation -> {
+            final var transport = HttpClientStreamableHttpTransport
+                    .builder(URI.create(url.get()).resolve("/").toString()).endpoint("/mcp").build();
+            try (var mcp = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
+                mcp.initialize();
+                final var result = mcp.callTool(new CallToolRequest(ObserveStack.NAME, Map.of()));
+                Assert.assertFalse(result.isError());
+                Assert.assertTrue(McpJsonDefaults.getMapper().readValue(
+                        ((TextContent) result.content().get(0)).text(), StackSnapshot.class).items().isEmpty());
+            }
+            return null;
+        });
+        try (var agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY, game.getPlayers().get(0))) {
+            verify(client).prompt(any());
+        }
     }
 
     private Game newGame() {
