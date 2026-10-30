@@ -18,8 +18,9 @@ final class MulliganPrompt {
     private MulliganPrompt() {
     }
 
-    static String render(Player player, Player firstPlayer, int cardsToReturn) {
+    static String render(Player player, Player firstPlayer, int cardsToReturn, String requestId) {
         return TEMPLATE.execute(Map.of(
+                "requestId", requestId,
                 "playerName", player.getName(),
                 "firstPlayerName", firstPlayer.getName(),
                 "cardsToReturn", cardsToReturn,

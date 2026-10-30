@@ -12,6 +12,7 @@ import org.tinylog.Logger;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 /**
@@ -62,12 +63,32 @@ public class PlayerControllerLlm extends PlayerControllerAi {
     public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn) {
         if (agent != null && !getGame().isSimulationCopy()) {
             try {
-                agent.prompt(MulliganPrompt.render(player, firstPlayer, cardsToReturn));
+                final var decision = new CompletableFuture<Boolean>();
+                final var callback = agent.mulliganDecision();
+                final String requestId = callback.register(keep -> {
+                    // MCP runs on another thread; publish the choice without touching the game.
+                    decision.complete(keep);
+                    return "Mulligan decision accepted.";
+                });
+                try {
+                    agent.prompt(MulliganPrompt.render(player, firstPlayer, cardsToReturn, requestId));
+                } catch (RuntimeException e) {
+                    Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
+                } finally {
+                    if (callback.cancel(requestId)) {
+                        decision.complete(null);
+                    }
+                }
+                // If the tool already claimed the callback, wait for it to publish its result.
+                final Boolean keep = decision.join();
+                if (keep != null) {
+                    return keep;
+                }
+                Logger.warn("No mulligan decision submitted for {}; using the built-in AI", player.getName());
             } catch (RuntimeException e) {
                 Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
             }
         }
-        // Keep using the built-in decision until the MCP submission tool exists.
         return super.mulliganKeepHand(firstPlayer, cardsToReturn);
     }
 

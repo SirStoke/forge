@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** A Codex session with an MCP endpoint; decisions are not applied to the game yet. */
+/** A Codex session with an MCP endpoint for game decisions. */
 final class CodexAcpAgent implements AutoCloseable {
     static final String MODEL = "gpt-6.1-sol";
     private static final String ADAPTER = "@agentclientprotocol/codex-acp@2.4.0";
@@ -58,6 +58,7 @@ final class CodexAcpAgent implements AutoCloseable {
                 .sessionUpdateHandler(conversation::onUpdate)
                 // First launch may also need to download the pinned adapter.
                 .requestTimeout(Duration.ofMinutes(2))
+                .promptTimeout(Duration.ofMinutes(2))
                 .build();
         return initialize(client, workingDirectory, conversation);
     }
@@ -97,6 +98,10 @@ final class CodexAcpAgent implements AutoCloseable {
 
     String getSessionId() {
         return sessionId;
+    }
+
+    CallbackOnce<Boolean, String> mulliganDecision() {
+        return mcpServer.mulliganDecision();
     }
 
     void prompt(String text) {

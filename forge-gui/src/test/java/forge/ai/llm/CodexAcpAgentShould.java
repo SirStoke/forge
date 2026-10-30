@@ -21,6 +21,9 @@ import forge.game.event.GameEventGameStarted;
 import forge.game.player.RegisteredPlayer;
 import forge.game.zone.ZoneType;
 import forge.util.Localizer;
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
 import org.testng.Assert;
@@ -28,8 +31,13 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.nio.file.Path;
+import java.net.URI;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -138,7 +146,7 @@ public class CodexAcpAgentShould {
     }
 
     @Test
-    public void sendMulliganChoicesWithTheCurrentHandWithoutApplyingTheResponse() {
+    public void sendTheCurrentHandAndUseTheFallbackWithoutAToolSubmission() {
         final Game game = newGame();
         final var player = game.getPlayers().get(0);
         final var opponent = game.getPlayers().get(1);
@@ -169,10 +177,60 @@ public class CodexAcpAgentShould {
             Assert.assertTrue(text.contains("- Island\n- Island\n- Fire & Ice <test>"));
             Assert.assertTrue(text.contains("- Keep:"));
             Assert.assertTrue(text.contains("- Mulligan:"));
+            Assert.assertTrue(text.contains("submit_mulligan_decision"));
             Assert.assertFalse(text.contains("Hidden opponent card"));
         } finally {
             game.fireEvent(new GameEventGameFinished());
         }
+    }
+
+    @Test
+    public void applyMulliganDecisionsSubmittedThroughMcpDuringTheAcpTurn() {
+        final Game game = newGame();
+        final var player = game.getPlayers().get(0);
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+        final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
+                () -> agent);
+        startGame(game);
+        final ArgumentCaptor<NewSessionRequest> session = ArgumentCaptor.forClass(NewSessionRequest.class);
+        verify(client).newSession(session.capture());
+        final String url = ((McpServerHttp) session.getValue().mcpServers().get(0)).url();
+        final var transport = HttpClientStreamableHttpTransport
+                .builder(URI.create(url).resolve("/").toString()).endpoint("/mcp").build();
+        try (var mcp = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
+            mcp.initialize();
+            final AtomicBoolean keep = new AtomicBoolean(false);
+            final AtomicReference<String> previousRequest = new AtomicReference<>();
+            when(client.prompt(any())).thenAnswer(invocation -> {
+                final String requestId = mulliganRequestId(invocation.getArgument(0));
+                final String oldRequest = previousRequest.getAndSet(requestId);
+                if (oldRequest != null) {
+                    Assert.assertNotEquals(requestId, oldRequest);
+                    Assert.assertTrue(mcp.callTool(new CallToolRequest("submit_mulligan_decision",
+                            Map.of("requestId", oldRequest, "keep", !keep.get()))).isError());
+                }
+                Assert.assertFalse(mcp.callTool(new CallToolRequest("submit_mulligan_decision",
+                        Map.of("requestId", requestId, "keep", keep.get()))).isError());
+                Assert.assertTrue(mcp.callTool(new CallToolRequest("submit_mulligan_decision",
+                        Map.of("requestId", requestId, "keep", !keep.get()))).isError());
+                if (!keep.get()) {
+                    throw new IllegalStateException("ACP failed after the tool accepted the decision");
+                }
+                return null;
+            });
+            // The built-in AI keeps an empty hand; the tool must override that result.
+            Assert.assertFalse(controller.mulliganKeepHand(player, 0));
+            keep.set(true);
+            Assert.assertTrue(controller.mulliganKeepHand(player, 1));
+        } finally {
+            game.fireEvent(new GameEventGameFinished());
+        }
+    }
+
+    private String mulliganRequestId(PromptRequest request) {
+        return request.text().lines().filter(line -> line.startsWith("Request ID: "))
+                .findFirst().orElseThrow().substring("Request ID: ".length());
     }
 
     @Test
@@ -181,12 +239,16 @@ public class CodexAcpAgentShould {
         final var player = game.getPlayers().get(0);
         final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
         doThrow(new IllegalStateException("Agent unavailable")).when(client).prompt(any());
+        final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
         final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
-                () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+                () -> agent);
         startGame(game);
         try {
             Assert.assertTrue(controller.mulliganKeepHand(player, 0));
-            verify(client).prompt(any());
+            final ArgumentCaptor<PromptRequest> request = ArgumentCaptor.forClass(PromptRequest.class);
+            verify(client).prompt(request.capture());
+            Assert.expectThrows(IllegalStateException.class,
+                    () -> agent.mulliganDecision().call(mulliganRequestId(request.getValue()), false));
         } finally {
             game.fireEvent(new GameEventGameFinished());
         }

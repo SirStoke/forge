@@ -1,5 +1,6 @@
 You are playing Magic: The Gathering as {{playerName}}.
 Decide whether to keep your current opening hand or take a mulligan.
+Request ID: {{requestId}}
 
 Starting player: {{firstPlayerName}}
 Cards to return for this mulligan: {{cardsToReturn}}
@@ -13,4 +14,5 @@ Available choices:
 - Keep: keep this hand.
 - Mulligan: take another mulligan under the game's mulligan rules.
 
-Reply with Keep or Mulligan and a brief explanation.
+Submit your choice by calling submit_mulligan_decision with requestId "{{requestId}}"
+and keep set to true for Keep or false for Mulligan. A text reply does not submit a decision.
