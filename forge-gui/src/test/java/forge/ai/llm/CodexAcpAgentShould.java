@@ -11,6 +11,8 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionResponse;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.llm.tools.ObserveStack;
+import forge.ai.llm.tools.ObserveHand;
+import forge.ai.llm.tools.ObserveBattlefield;
 import forge.deck.Deck;
 import forge.game.Game;
 import forge.game.GameRules;
@@ -129,7 +131,7 @@ public class CodexAcpAgentShould {
     }
 
     @Test
-    public void exposeTheStackWhileTheOpeningAcpPromptIsRunning() {
+    public void exposeGameObservationsWhileTheOpeningAcpPromptIsRunning() {
         final Game game = newGame();
         final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
         final AtomicReference<String> url = new AtomicReference<>();
@@ -147,6 +149,12 @@ public class CodexAcpAgentShould {
                 Assert.assertFalse(result.isError());
                 Assert.assertTrue(McpJsonDefaults.getMapper().readValue(
                         ((TextContent) result.content().get(0)).text(), StackSnapshot.class).items().isEmpty());
+                for (String tool : List.of(ObserveHand.NAME, ObserveBattlefield.NAME)) {
+                    final var cards = mcp.callTool(new CallToolRequest(tool, Map.of()));
+                    Assert.assertFalse(cards.isError());
+                    Assert.assertTrue(McpJsonDefaults.getMapper().readValue(
+                            ((TextContent) cards.content().get(0)).text(), CardsSnapshot.class).cards().isEmpty());
+                }
             }
             return null;
         });

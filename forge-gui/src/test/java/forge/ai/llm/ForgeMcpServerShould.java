@@ -3,6 +3,8 @@ package forge.ai.llm;
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
 import forge.ai.llm.tools.ObserveStack;
+import forge.ai.llm.tools.ObserveHand;
+import forge.ai.llm.tools.ObserveBattlefield;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -31,7 +33,8 @@ public class ForgeMcpServerShould {
             try (var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
                 Assert.assertEquals(client.initialize().serverInfo().name(), "mtg-forge");
                 Assert.assertEquals(client.listTools().tools().stream().map(tool -> tool.name())
-                        .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, ObserveStack.NAME));
+                        .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, ObserveStack.NAME,
+                                ObserveHand.NAME, ObserveBattlefield.NAME));
             }
         }
 

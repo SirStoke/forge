@@ -118,7 +118,7 @@ final class CodexAcpAgent implements AutoCloseable {
     }
 
     void prompt(String text) {
-        mcpServer.refreshStack();
+        mcpServer.refreshGameState();
         conversation.flush();
         ConversationLog.log(sessionId, "USER", text);
         try {

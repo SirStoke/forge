@@ -8,12 +8,12 @@ import forge.game.player.Player;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Publishes snapshots from game events; MCP readers never access the live game. */
-final class StackObserver implements AutoCloseable {
+final class GameObserver implements AutoCloseable {
     private final Player viewer;
-    private final AtomicReference<StackSnapshot> current = new AtomicReference<>();
+    private final AtomicReference<Snapshot> current = new AtomicReference<>();
     private volatile boolean closed;
 
-    StackObserver(Player viewer) {
+    GameObserver(Player viewer) {
         this.viewer = viewer;
         if (viewer != null) {
             refresh();
@@ -23,17 +23,15 @@ final class StackObserver implements AutoCloseable {
 
     void refresh() {
         if (!closed && viewer != null) {
-            final StackSnapshot previous = current.get();
-            if (previous == null || !previous.items().isEmpty() || !viewer.getGame().getStack().isEmpty()) {
-                current.set(StackSnapshot.capture(viewer));
-            }
+            current.set(new Snapshot(StackSnapshot.capture(viewer), CardsSnapshot.hand(viewer),
+                    CardsSnapshot.battlefield(viewer)));
         }
     }
 
-    StackSnapshot read() {
-        final StackSnapshot snapshot = current.get();
+    Snapshot read() {
+        final Snapshot snapshot = current.get();
         if (closed || snapshot == null) {
-            throw new IllegalStateException("No active game stack is available");
+            throw new IllegalStateException("No active game state is available");
         }
         return snapshot;
     }
@@ -51,5 +49,8 @@ final class StackObserver implements AutoCloseable {
     public void close() {
         closed = true;
         current.set(null);
+    }
+
+    record Snapshot(StackSnapshot stack, CardsSnapshot hand, CardsSnapshot battlefield) {
     }
 }
