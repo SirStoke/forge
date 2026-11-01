@@ -2,7 +2,6 @@ package forge.ai.llm;
 
 import com.google.common.eventbus.Subscribe;
 import forge.LobbyPlayer;
-import forge.ai.PlayerControllerAi;
 import forge.game.Game;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
@@ -17,14 +16,19 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 /**
- * Scaffold for a harness-controlled player. Other choices use the built-in AI
- * until their harness adapters are implemented.
+ * Harness-controlled gameplay with validated choices and local AI fallback.
  */
-public class PlayerControllerLlm extends PlayerControllerAi {
+public class PlayerControllerLlm extends LlmDecisionController {
     private final Supplier<CodexAcpAgent> agentFactory;
     private CodexAcpAgent agent;
     private boolean initializationAttempted;
     private boolean finished;
+    private boolean passAfterFailedPlay;
+
+    @Override
+    protected CodexAcpAgent decisionAgent() {
+        return agent;
+    }
 
     public PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer) {
         this(game, player, lobbyPlayer, () -> CodexAcpAgent.start(Path.of("."), player));
@@ -95,18 +99,25 @@ public class PlayerControllerLlm extends PlayerControllerAi {
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
-        if (agent == null || getGame().isSimulationCopy()) {
+        if (getGame().isSimulationCopy()) return super.chooseSpellAbilityToPlay();
+        if (passAfterFailedPlay) {
+            passAfterFailedPlay = false;
+            return null;
+        }
+        if (agent == null) {
             return null;
         }
         try {
-            final var options = HandPlayOptions.available(player);
+            // Candidate affordability probes may invoke controller callbacks (e.g. convoke).
+            // They must use local decisions rather than starting speculative harness requests.
+            final var options = locally(() -> PriorityActions.available(player));
             if (options.isEmpty()) {
                 return null;
             }
             final var decision = new CompletableFuture<PriorityDecision>();
             final var callback = agent.priorityDecision();
             final String requestId = callback.register(choice -> {
-                if (choice instanceof PriorityDecision.PlayCard play && options.containsKey(play)
+                if (choice instanceof PriorityDecision.PlayAction play && options.containsKey(play)
                         || choice instanceof PriorityDecision.Pass) {
                     return;
                 }
@@ -125,7 +136,7 @@ public class PlayerControllerLlm extends PlayerControllerAi {
                     decision.complete(new PriorityDecision.Pass());
                 }
             }
-            if (decision.join() instanceof PriorityDecision.PlayCard play) {
+            if (decision.join() instanceof PriorityDecision.PlayAction play) {
                 return List.of(options.get(play));
             }
         } catch (RuntimeException e) {
@@ -136,7 +147,11 @@ public class PlayerControllerLlm extends PlayerControllerAi {
 
     @Override
     public boolean playChosenSpellAbility(SpellAbility ability) {
-        // This flow requests targets after selecting the spell; inherited AI hooks handle those choices for now.
-        return PlaySpellAbility.playSpellAbility(this, player, ability);
+        boolean played = PlaySpellAbility.playSpellAbility(this, player, ability);
+        if (!played) {
+            passAfterFailedPlay = true;
+            notifyOfValue(ability, null, "The previous play failed or was canceled: " + ability.getDescription());
+        }
+        return played;
     }
 }

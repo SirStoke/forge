@@ -121,6 +121,10 @@ final class CodexAcpAgent implements AutoCloseable {
         return mcpServer.priorityDecision();
     }
 
+    CallbackOnce<forge.ai.llm.tools.SubmitChoice, String> choiceDecision() {
+        return mcpServer.choiceDecision();
+    }
+
     void prompt(String text) {
         mcpServer.refreshGameState();
         conversation.flush();

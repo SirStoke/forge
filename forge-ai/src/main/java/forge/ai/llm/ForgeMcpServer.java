@@ -5,8 +5,9 @@ import forge.ai.llm.tools.CardDetails;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveBattlefield;
-import forge.ai.llm.tools.PlayCardFromHand;
+import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.PassPriority;
+import forge.ai.llm.tools.SubmitChoice;
 import forge.game.player.Player;
 import forge.util.BuildInfo;
 import forge.util.FileUtil;
@@ -29,6 +30,7 @@ final class ForgeMcpServer implements AutoCloseable {
     private final Path directory;
     private final CallbackOnce<Boolean, String> mulliganDecision = new CallbackOnce<>();
     private final CallbackOnce<PriorityDecision, String> priorityDecision = new CallbackOnce<>();
+    private final CallbackOnce<SubmitChoice, String> choiceDecision = new CallbackOnce<>();
     private final GameObserver game;
 
     private ForgeMcpServer(Player viewer) throws IOException {
@@ -39,14 +41,16 @@ final class ForgeMcpServer implements AutoCloseable {
         game = new GameObserver(viewer);
 
         final ToolRepository tools = new ToolRepository();
+        tools.register(SubmitChoice::schema, SubmitChoice::compile,
+                request -> choiceDecision.call(request.requestId(), request));
         tools.register(Mulligan::schema, Mulligan::compile,
                 mulligan -> mulliganDecision.call(mulligan.requestId(), mulligan.keep()));
         tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
         tools.register(ObserveStack::schema, ObserveStack::compile, request -> game.read().stack());
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
         tools.register(ObserveBattlefield::schema, ObserveBattlefield::compile, request -> game.read().battlefield());
-        tools.register(PlayCardFromHand::schema, PlayCardFromHand::compile, request -> priorityDecision.call(
-                request.requestId(), new PriorityDecision.PlayCard(request.cardId(), request.abilityId())));
+        tools.register(PlayAction::schema, PlayAction::compile, request -> priorityDecision.call(
+                request.requestId(), new PriorityDecision.PlayAction(request.cardId(), request.abilityId())));
         tools.register(PassPriority::schema, PassPriority::compile,
                 request -> priorityDecision.call(request.requestId(), new PriorityDecision.Pass()));
 
@@ -95,6 +99,10 @@ final class ForgeMcpServer implements AutoCloseable {
 
     void refreshGameState() {
         game.refresh();
+    }
+
+    CallbackOnce<SubmitChoice, String> choiceDecision() {
+        return choiceDecision;
     }
 
     @Override

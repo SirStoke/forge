@@ -13,7 +13,7 @@ public record ObserveBattlefield() {
     public static Tool schema() {
         return Tool.builder().name(NAME)
                 .description("List all players' cards on the battlefield, with card IDs, names, owners, "
-                        + "controllers, and tapped/face-down status. Hidden identities are concealed. "
+                        + "controllers, tapped/face-down status, current type, power/toughness, damage and counters. Hidden identities are concealed. "
                         + "Use get_card_details for printed card rules. An empty list means an empty battlefield.")
                 .annotations(ToolAnnotations.builder().readOnlyHint(true).destructiveHint(false)
                         .idempotentHint(true).openWorldHint(false).build())

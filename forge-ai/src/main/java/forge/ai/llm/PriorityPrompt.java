@@ -1,6 +1,8 @@
 package forge.ai.llm;
 
 import com.samskivert.mustache.Template;
+import forge.card.CardStateName;
+import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 
@@ -12,7 +14,7 @@ final class PriorityPrompt {
     private PriorityPrompt() {
     }
 
-    static String render(Player player, String requestId, Map<PriorityDecision.PlayCard, SpellAbility> options) {
+    static String render(Player player, String requestId, Map<PriorityDecision.PlayAction, SpellAbility> options) {
         final var phase = player.getGame().getPhaseHandler();
         return TEMPLATE.execute(Map.of(
                 "requestId", requestId,
@@ -21,7 +23,31 @@ final class PriorityPrompt {
                 "phase", phase.getPhase().toString(),
                 "options", options.entrySet().stream().map(entry -> Map.of(
                         "cardId", entry.getKey().cardId(), "abilityId", entry.getKey().abilityId(),
-                        "name", entry.getValue().getHostCard().getName(),
+                        "name", name(entry.getValue().getHostCard(), player),
+                        "zone", entry.getValue().getHostCard().getZone().getZoneType().toString(),
+                        "kind", kind(entry.getValue()),
+                        "cost", entry.getValue().getPayCosts() == null ? "None"
+                                : entry.getValue().getPayCosts().toSimpleString(),
                         "description", entry.getValue().getDescription())).toList()));
+    }
+
+    private static String name(Card card, Player player) {
+        if (!card.getView().canBeShownTo(player.getView()) || !card.getView().canFaceDownBeShownTo(player.getView())) {
+            return card.isFaceDown() ? "Face-down card" : "Hidden card";
+        }
+        return card.isFaceDown() ? card.getOriginalState(CardStateName.Original).getName() : card.getName();
+    }
+
+    private static String kind(SpellAbility ability) {
+        if (ability.isLandAbility()) {
+            return "Play land";
+        }
+        if (ability.isSpell()) {
+            return "Cast spell";
+        }
+        if (ability.isManaAbility()) {
+            return "Activate mana ability";
+        }
+        return ability.isActivatedAbility() ? "Activate ability" : "Special action";
     }
 }

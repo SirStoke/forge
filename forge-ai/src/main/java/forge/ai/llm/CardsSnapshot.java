@@ -31,13 +31,19 @@ public record CardsSnapshot(List<CardInfo> cards) {
                     ? (card.isFaceDown() ? card.getOriginalState(CardStateName.Original).getName() : card.getName())
                     : (card.isFaceDown() ? "Face-down card" : "Hidden card");
             result.add(new CardInfo(card.getId(), name, PlayerInfo.from(card.getOwner()),
-                    PlayerInfo.from(card.getController()), card.isTapped(), card.isFaceDown()));
+                    PlayerInfo.from(card.getController()), card.isTapped(), card.isFaceDown(),
+                    visible || card.isInPlay() ? card.getType().toString() : null,
+                    visible || card.isInPlay() ? card.getNetPower() : null,
+                    visible || card.isInPlay() ? card.getNetToughness() : null,
+                    visible || card.isInPlay() ? card.getDamage() : null,
+                    visible || card.isInPlay() ? card.getCounters().toString() : null));
         }
         return new CardsSnapshot(result);
     }
 
     public record CardInfo(int id, String name, PlayerInfo owner, PlayerInfo controller,
-                           boolean tapped, boolean faceDown) {
+                           boolean tapped, boolean faceDown, String type, Integer power, Integer toughness,
+                           Integer damage, String counters) {
     }
 
     public record PlayerInfo(int id, String name) {

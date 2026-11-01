@@ -10,7 +10,8 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionResponse;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.llm.tools.PassPriority;
-import forge.ai.llm.tools.PlayCardFromHand;
+import forge.ai.llm.tools.PlayAction;
+import forge.ai.llm.tools.SubmitChoice;
 import forge.card.CardRarity;
 import forge.card.CardRules;
 import forge.deck.Deck;
@@ -26,6 +27,7 @@ import forge.game.event.GameEventGameStarted;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.player.RegisteredPlayer;
+import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.item.PaperCard;
 import forge.util.Lang;
@@ -36,6 +38,7 @@ import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTranspor
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.net.URI;
@@ -45,13 +48,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class HandPlayShould {
+public class PriorityActionsShould {
     @BeforeClass
     public void initializeLanguage() {
         Localizer.getInstance().initialize("en-US", "res/languages/");
@@ -71,7 +75,7 @@ public class HandPlayShould {
             final var players = List.of(
                     new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("One", null)),
                     new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("Two", null)));
-            game = new Match(new GameRules(GameType.Constructed), players, "Hand play").createGame();
+            game = new Match(new GameRules(GameType.Constructed), players, "Priority actions").createGame();
             player = game.getPlayers().get(0);
             opponent = game.getPlayers().get(1);
             player.setStartingLife(20);
@@ -108,8 +112,26 @@ public class HandPlayShould {
         }
 
         CallToolRequest play(String requestId, int cardId, int abilityId) {
-            return new CallToolRequest(PlayCardFromHand.NAME,
+            return new CallToolRequest(PlayAction.NAME,
                     Map.of("requestId", requestId, "cardId", cardId, "abilityId", abilityId));
+        }
+
+        SpellAbility choose(Card card) {
+            when(client.prompt(any())).thenAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                final var action = Pattern.compile("cardId=" + card.getId() + ", abilityId=(\\d+)")
+                        .matcher(prompt.text());
+                Assert.assertTrue(action.find(), "Card must be offered in the priority prompt: " + prompt.text());
+                final String requestId = prompt.text().lines().filter(line -> line.startsWith("Request ID: "))
+                        .findFirst().orElseThrow().substring("Request ID: ".length());
+                Assert.assertFalse(mcp.callTool(play(requestId, card.getId(), Integer.parseInt(action.group(1)))).isError());
+                return null;
+            });
+            final var selected = controller.chooseSpellAbilityToPlay();
+            Assert.assertNotNull(selected);
+            Assert.assertEquals(selected.size(), 1);
+            Assert.assertSame(selected.get(0).getHostCard(), card);
+            return selected.get(0);
         }
 
         @Override
@@ -180,12 +202,189 @@ public class HandPlayShould {
             final var selected = session.controller.chooseSpellAbilityToPlay();
             Assert.assertNotNull(selected);
             Assert.assertTrue(selected.get(0).getTargets().isEmpty());
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                final String preferred = prompt.text().contains("Choose targets") ? "Two id="
+                        : prompt.text().contains("Spend floating") ? "Spend floating" : "Activate mana ability:";
+                final int index = prompt.text().lines().filter(line -> line.matches("\\d+: .*"))
+                        .filter(line -> line.contains(preferred))
+                        .mapToInt(line -> Integer.parseInt(line.substring(0, line.indexOf(':')))).findFirst().orElseThrow();
+                Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                        Map.of("requestId", requestId(prompt), "choices", List.of(index)))).isError());
+                return null;
+            }).when(session.client).prompt(any());
             Assert.assertTrue(session.controller.playChosenSpellAbility(selected.get(0)));
             Assert.assertEquals(session.game.getStack().size(), 1);
             final var cast = session.game.getStack().peek().getSpellAbility();
             Assert.assertEquals(cast.getHostCard().getName(), "Lightning Bolt");
             Assert.assertTrue(cast.isTargetNumberValid());
             Assert.assertTrue(cast.getTargets().contains(session.opponent));
+        }
+    }
+
+    @Test
+    public void activateBattlefieldAbilityWithAutomaticTargetingAndPayment() {
+        try (var session = new Session()) {
+            final Card source = session.card(session.player, ZoneType.Battlefield, "Damage artifact",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ DealDamage | Cost$ T | ValidTgts$ Opponent | NumDmg$ 1 | SpellDescription$ Deal 1 damage to target opponent.");
+            final SpellAbility ability = session.choose(source);
+            Assert.assertTrue(ability.isActivatedAbility());
+            Assert.assertFalse(source.isTapped(), "Selecting the action must not execute it on the MCP thread");
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(source.isTapped());
+            Assert.assertTrue(source.isInZone(ZoneType.Battlefield));
+            Assert.assertEquals(session.game.getStack().size(), 1);
+            Assert.assertTrue(session.game.getStack().peek().getSpellAbility().getTargets().contains(session.opponent));
+        }
+    }
+
+    @Test
+    public void activateManaAbilityImmediatelyWithoutPuttingItOnTheStack() {
+        try (var session = new Session()) {
+            final Card source = session.card(session.player, ZoneType.Battlefield, "Mana artifact",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T | Produced$ R | SpellDescription$ Add {R}.");
+            final SpellAbility ability = session.choose(source);
+            Assert.assertTrue(ability.isManaAbility());
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(source.isTapped());
+            Assert.assertEquals(session.player.getManaPool().totalMana(), 1);
+            Assert.assertTrue(session.game.getStack().isEmpty());
+            Assert.assertTrue(PriorityActions.available(session.player).isEmpty(), "A tapped source cannot activate again");
+        }
+    }
+
+    @Test
+    public void offerHandActivationsAlongsideCastingOptions() {
+        try (var session = new Session()) {
+            final Card card = session.card(session.player, ZoneType.Hand, "Hand activation",
+                    "ManaCost:5", "Types:Artifact", "Oracle:",
+                    "A:AB$ GainLife | Cost$ 0 | ActivationZone$ Hand | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            final SpellAbility ability = session.choose(card);
+            Assert.assertTrue(ability.isActivatedAbility());
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(card.isInZone(ZoneType.Hand));
+            Assert.assertEquals(session.game.getStack().size(), 1);
+        }
+    }
+
+    @Test
+    public void turnAMorphFaceUpAsASpecialActionWithoutUsingTheStack() {
+        try (var session = new Session()) {
+            final Card card = session.card(session.player, ZoneType.Battlefield, "Morph creature",
+                    "ManaCost:5", "Types:Creature", "PT:3/3", "Oracle:", "K:Morph:0");
+            card.turnFaceDown(true);
+            Assert.assertTrue(PriorityPrompt.render(session.player, "request", PriorityActions.available(session.player))
+                    .contains("Morph creature [Battlefield; Special action; cost:"));
+            final SpellAbility ability = session.choose(card);
+            Assert.assertTrue(ability.isTurnFaceUp());
+            Assert.assertTrue(card.isFaceDown());
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertFalse(card.isFaceDown());
+            Assert.assertTrue(session.game.getStack().isEmpty());
+        }
+    }
+
+    @DataProvider
+    public Object[][] externalZones() {
+        return new Object[][] { { ZoneType.Graveyard }, { ZoneType.Exile }, { ZoneType.Command },
+                { ZoneType.Library }, { ZoneType.Sideboard } };
+    }
+
+    @Test(dataProvider = "externalZones")
+    public void castSpellsWithPermissionFromExternalZones(ZoneType zone) {
+        try (var session = new Session()) {
+            final Card card = session.card(session.player, zone, "External spell",
+                    "ManaCost:0", "Types:Instant", "Oracle:",
+                    "A:SP$ GainLife | ActivationZone$ " + zone + " | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            final Card forbidden = session.card(session.player, zone, "Forbidden external spell",
+                    "ManaCost:0", "Types:Instant", "Oracle:",
+                    "A:SP$ GainLife | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            final SpellAbility ability = session.choose(card);
+            final var options = PriorityActions.available(session.player);
+            Assert.assertFalse(options.values().stream().anyMatch(sa -> sa.getHostCard() == forbidden));
+            final String prompt = PriorityPrompt.render(session.player, "request", options);
+            Assert.assertTrue(prompt.contains("[" + zone + "; Cast spell; cost:"));
+            Assert.assertFalse(prompt.contains("Forbidden external spell"));
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(card.isInZone(ZoneType.Stack));
+            Assert.assertEquals(session.game.getStack().size(), 1);
+        }
+    }
+
+    @Test
+    public void offerFlashbackAndExcludeHiddenCardsAndUnusableAbilities() {
+        try (var session = new Session()) {
+            final Card flashback = session.card(session.player, ZoneType.Graveyard, "Flashback spell",
+                    "ManaCost:5", "Types:Instant", "Oracle:", "K:Flashback:0",
+                    "A:SP$ GainLife | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            session.card(session.opponent, ZoneType.Hand, "Secret hand", "ManaCost:0", "Types:Artifact", "Oracle:");
+            session.card(session.player, ZoneType.Library, "Secret library", "ManaCost:0", "Types:Artifact", "Oracle:");
+            session.card(session.opponent, ZoneType.Battlefield, "Opponent ability",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ GainLife | Cost$ 0 | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            session.card(session.player, ZoneType.Battlefield, "Unaffordable activation",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ GainLife | Cost$ 5 | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            session.card(session.player, ZoneType.Battlefield, "No legal target",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Destroy | Cost$ 0 | ValidTgts$ Creature | SpellDescription$ Destroy target creature.");
+            final var options = PriorityActions.available(session.player);
+            Assert.assertEquals(options.size(), 1);
+            Assert.assertTrue(options.values().iterator().next().isFlashback());
+            final String prompt = PriorityPrompt.render(session.player, "request", options);
+            Assert.assertTrue(prompt.contains("Flashback spell [Graveyard; Cast spell; cost:"));
+            for (String absent : List.of("Secret hand", "Secret library", "Opponent ability",
+                    "Unaffordable activation", "No legal target")) {
+                Assert.assertFalse(prompt.contains(absent), absent);
+            }
+            final SpellAbility ability = session.choose(flashback);
+            Assert.assertTrue(ability.isFlashback());
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(flashback.isInZone(ZoneType.Stack));
+        }
+    }
+
+    @Test
+    public void respectPlayPermissionsForLibraryTopsAndOpponentsExiledCards() {
+        try (var session = new Session()) {
+            session.card(session.player, ZoneType.Battlefield, "Permission artifact",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "S:Mode$ Continuous | Affected$ Card.TopLibrary+YouOwn | AffectedZone$ Library | MayPlay$ True",
+                    "S:Mode$ Continuous | Affected$ Card.OppOwn | AffectedZone$ Exile | MayPlay$ True");
+            final Card top = session.card(session.player, ZoneType.Library, "Permitted top",
+                    "ManaCost:0", "Types:Artifact", "Oracle:");
+            session.card(session.player, ZoneType.Library, "Hidden second card",
+                    "ManaCost:0", "Types:Artifact", "Oracle:");
+            final Card exiled = session.card(session.opponent, ZoneType.Exile, "Permitted opponent card",
+                    "ManaCost:0", "Types:Artifact", "Oracle:");
+            session.game.getAction().checkStaticAbilities();
+            final var options = PriorityActions.available(session.player);
+            Assert.assertTrue(options.values().stream().anyMatch(sa -> sa.getHostCard() == top));
+            Assert.assertTrue(options.values().stream().anyMatch(sa -> sa.getHostCard() == exiled));
+            Assert.assertFalse(PriorityPrompt.render(session.player, "request", options).contains("Hidden second card"));
+            final SpellAbility ability = session.choose(exiled);
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(exiled.isInZone(ZoneType.Stack));
+            Assert.assertSame(session.game.getStack().peek().getActivatingPlayer(), session.player);
+        }
+    }
+
+    @Test
+    public void playLandFromTheGraveyardWhenPermissionAllowsIt() {
+        try (var session = new Session()) {
+            session.card(session.player, ZoneType.Battlefield, "Land permission",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "S:Mode$ Continuous | Affected$ Land.YouOwn | AffectedZone$ Graveyard | MayPlay$ True");
+            final Card land = session.card(session.player, ZoneType.Graveyard, "Forest",
+                    "ManaCost:no cost", "Types:Basic Land Forest", "Oracle:");
+            session.game.getAction().checkStaticAbilities();
+            final SpellAbility ability = session.choose(land);
+            Assert.assertTrue(ability.isLandAbility());
+            Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
+            Assert.assertTrue(land.isInZone(ZoneType.Battlefield));
+            Assert.assertEquals(session.player.getLandsPlayedThisTurn(), 1);
         }
     }
 
@@ -272,25 +471,27 @@ public class HandPlayShould {
             Assert.expectThrows(IllegalStateException.class,
                     () -> session.agent.priorityDecision().call(lastId.get(), new PriorityDecision.Pass()));
             session.game.markAsSimulationCopy();
-            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.clearInvocations(session.client);
+            Assert.assertNotNull(session.controller.chooseSpellAbilityToPlay(), "Simulation copies use local AI");
+            org.mockito.Mockito.verify(session.client, org.mockito.Mockito.never()).prompt(any());
         }
     }
 
     @Test
     public void validateToolArgumentsWithoutTruncatingIds() {
-        Assert.assertEquals(PlayCardFromHand.compile(new CallToolRequest(PlayCardFromHand.NAME,
-                Map.of("requestId", "request", "cardId", 1L, "abilityId", 2))), new PlayCardFromHand("request", 1, 2));
+        Assert.assertEquals(PlayAction.compile(new CallToolRequest(PlayAction.NAME,
+                Map.of("requestId", "request", "cardId", 1L, "abilityId", 2))), new PlayAction("request", 1, 2));
         for (Object invalid : List.of(-1, 1.5, "1", Long.MAX_VALUE, true)) {
-            Assert.expectThrows(IllegalArgumentException.class, () -> PlayCardFromHand.compile(
-                    new CallToolRequest(PlayCardFromHand.NAME,
+            Assert.expectThrows(IllegalArgumentException.class, () -> PlayAction.compile(
+                    new CallToolRequest(PlayAction.NAME,
                             Map.of("requestId", "request", "cardId", invalid, "abilityId", 2))));
         }
         for (Map<String, Object> invalid : List.<Map<String, Object>>of(Map.of(),
                 Map.of("requestId", "request", "cardId", 1),
                 Map.of("requestId", " ", "cardId", 1, "abilityId", 2),
                 Map.of("requestId", "request", "cardId", 1, "abilityId", 2, "extra", true))) {
-            Assert.expectThrows(IllegalArgumentException.class, () -> PlayCardFromHand.compile(
-                    new CallToolRequest(PlayCardFromHand.NAME, invalid)));
+            Assert.expectThrows(IllegalArgumentException.class, () -> PlayAction.compile(
+                    new CallToolRequest(PlayAction.NAME, invalid)));
         }
     }
 }
