@@ -51,7 +51,7 @@ public class GameplayChoicesShould {
         Lang.createInstance("en-US");
     }
 
-    private static final class Session implements AutoCloseable {
+    static final class Session implements AutoCloseable {
         final Game game;
         final Player player;
         final Player opponent;

@@ -1,6 +1,7 @@
 package forge.ai.llm;
 
 import forge.ai.llm.tools.CancelAction;
+import forge.ai.llm.tools.PayMana;
 import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
@@ -40,7 +41,7 @@ public class ForgeMcpServerShould {
                 Assert.assertEquals(client.initialize().serverInfo().name(), "mtg-forge");
                 Assert.assertEquals(client.listTools().tools().stream().map(tool -> tool.name())
                         .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, ObserveStack.NAME,
-                                ObserveHand.NAME, ObserveBattlefield.NAME, PlayAction.NAME, PassPriority.NAME, SubmitChoice.NAME, GetAvailableActions.NAME, CancelAction.NAME, ObserveDeck.NAME));
+                                ObserveHand.NAME, ObserveBattlefield.NAME, PlayAction.NAME, PassPriority.NAME, SubmitChoice.NAME, GetAvailableActions.NAME, CancelAction.NAME, ObserveDeck.NAME, PayMana.NAME));
                 Assert.assertTrue(client.callTool(new CallToolRequest(GetAvailableActions.NAME,
                         Map.of("requestId", "missing"))).isError());
             }

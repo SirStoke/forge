@@ -1,6 +1,7 @@
 package forge.ai.llm;
 
 import forge.ai.llm.tools.CancelAction;
+import forge.ai.llm.tools.PayMana;
 import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
@@ -48,6 +49,8 @@ final class ForgeMcpServer implements AutoCloseable {
         final ToolRepository tools = new ToolRepository();
         tools.register(SubmitChoice::schema, SubmitChoice::compile,
                 request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Choose(request)));
+        tools.register(PayMana::schema, PayMana::compile,
+                request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Payment(request)));
         tools.register(CancelAction::schema, CancelAction::compile,
                 request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Cancel()));
         tools.register(Mulligan::schema, Mulligan::compile,

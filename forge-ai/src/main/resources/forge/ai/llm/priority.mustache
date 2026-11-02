@@ -13,7 +13,8 @@ Alternatively, call pass_priority with requestId "{{requestId}}" without fetchin
 
 Submit exactly one decision, then finish this response so Forge can execute it.
 Forge will send follow-up requests for targets, modes, costs, payments and other choices. Answer those using submit_choice.
-During mana payment, choose sources to activate, mana colors when required, and floating mana to spend through submit_choice.
+During mana payment, use pay_mana to submit several source activations/payments in one ordered plan, including output colors when needed. Forge spends eligible mana produced by those sources automatically.
+You can use submit_choice for individual manual payment steps. Extra source costs or unspecified choices may still prompt separately.
 You do not need to activate mana sources before choosing the action. Payment can be canceled or fail if resources are missing.
 If you discover that you cannot or do not want to pay for the chosen action, use cancel_action when the follow-up prompt offers it.
 Call cancel_action with that follow-up prompt's requestId, then finish your response.

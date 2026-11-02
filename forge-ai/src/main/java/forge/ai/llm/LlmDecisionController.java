@@ -5,6 +5,7 @@ import forge.LobbyPlayer;
 import forge.StaticData;
 import forge.ai.PlayerControllerAi;
 import forge.ai.llm.tools.SubmitChoice;
+import forge.ai.llm.tools.PayMana;
 import forge.card.ColorSet;
 import forge.card.ICardFace;
 import forge.card.MagicColor;
@@ -26,6 +27,7 @@ import forge.game.trigger.WrappedAbility;
 import forge.game.zone.PlayerZone;
 import forge.game.zone.ZoneType;
 import forge.util.ITriggerEvent;
+import forge.util.Localizer;
 import forge.util.collect.FCollectionView;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
@@ -77,6 +79,17 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     private SubmitChoice request(String title, List<String> labels, int min, int max, boolean repeat,
                                  boolean number, boolean cancellable) {
+        final ChoiceDecision decision = requestDecision(title, labels, min, max, repeat, number, cancellable, null);
+        return decision instanceof ChoiceDecision.Choose chosen ? chosen.answer() : null;
+    }
+
+    final ChoiceDecision requestManaPayment(SpellAbility sa, String title, List<String> labels, List<Boolean> manaSources) {
+        if (preparingPriorityAction && actionCanceled) return null;
+        return requestDecision(context(sa, title), labels, 0, Math.min(1, labels.size()), false, false, true, List.copyOf(manaSources));
+    }
+
+    private ChoiceDecision requestDecision(String title, List<String> labels, int min, int max, boolean repeat,
+                                           boolean number, boolean cancellable, List<Boolean> manaSources) {
         final boolean canCancel = cancellable && preparingPriorityAction;
         var future = new CompletableFuture<ChoiceDecision>();
         var callback = decisionAgent().choiceDecision();
@@ -85,6 +98,16 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         String id = callback.register(decision -> {
             if (decision instanceof ChoiceDecision.Cancel) {
                 if (!canCancel) throw new IllegalArgumentException("This prompt does not allow cancel_action.");
+                return;
+            }
+            if (decision instanceof ChoiceDecision.Payment payment) {
+                if (manaSources == null) throw new IllegalArgumentException("This prompt does not allow pay_mana.");
+                for (PayMana.Step step : payment.plan().steps()) {
+                    if (step.option() >= size) throw new IllegalArgumentException("Choose offered payment option indices.");
+                    if (!step.colors().isEmpty() && !manaSources.get(step.option())) {
+                        throw new IllegalArgumentException("colors is only valid for a mana-source activation.");
+                    }
+                }
                 return;
             }
             SubmitChoice answer = ((ChoiceDecision.Choose) decision).answer();
@@ -102,6 +125,8 @@ abstract class LlmDecisionController extends PlayerControllerAi {
             future.complete(answer);
             return answer instanceof ChoiceDecision.Cancel
                     ? "Action cancellation accepted. Finish this response so Forge can abort it and offer another action without passing priority."
+                    : answer instanceof ChoiceDecision.Payment
+                    ? "Payment plan accepted. Finish this response so Forge can execute the batch."
                     : "Choice accepted. Finish this response so Forge can continue.";
         });
         StringBuilder prompt = new StringBuilder("You are playing as ").append(player.getName())
@@ -127,6 +152,12 @@ abstract class LlmDecisionController extends PlayerControllerAi {
                 prompt.append(i).append(": ").append(labels.get(i)).append('\n');
             }
         }
+        if (manaSources != null) {
+            prompt.append("For bulk payment, call pay_mana with this requestId and steps: an ordered array of {option: index, colors: [optional W/U/B/R/G/C production choices]}.\n")
+                    .append("Example: steps:[{option:0},{option:2}] activates/spends options 0 then 2 in one response. Each activated source's newly produced eligible mana is spent automatically; pre-existing floating mana is spent only if selected.\n")
+                    .append("Stop when paid; surplus mana stays in the pool and later sources are not activated. Steps may repeat only while still legal. Missing choices or unavailable steps can prompt again.\n")
+                    .append("Use submit_choice for one manual step, or pay_mana for the batch; submit exactly one tool decision.\n");
+        }
         if (canCancel) {
             prompt.append("You may call cancel_action with requestId \"").append(id)
                     .append("\" instead to cancel this action without passing priority.\n");
@@ -147,7 +178,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
             actionCanceled = true;
             return null;
         }
-        return decision instanceof ChoiceDecision.Choose chosen ? chosen.answer() : null;
+        return decision;
     }
 
     final <T> List<T> select(String title, List<T> options, int min, int max, boolean repeat,
@@ -861,6 +892,35 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         return true;
     }
 
+    private PlannedManaColors plannedManaColors;
+
+    private static final class PlannedManaColors {
+        final int sourceId;
+        final Deque<Byte> colors;
+        PlannedManaColors(SpellAbility ability, List<String> choices) {
+            sourceId = ability.getHostCard().getId();
+            colors = new ArrayDeque<>();
+            choices.forEach(choice -> colors.add(MagicColor.fromName(choice)));
+        }
+    }
+
+    final boolean withManaColors(SpellAbility ability, List<String> colors, Supplier<Boolean> action) {
+        final var previous = plannedManaColors;
+        plannedManaColors = new PlannedManaColors(ability, colors);
+        try { return action.get(); }
+        finally { plannedManaColors = previous; }
+    }
+
+    private Byte plannedColor(String title, Card source, List<Byte> options) {
+        if (plannedManaColors == null || source == null || plannedManaColors.sourceId != source.getId()
+                || !Localizer.getInstance().getMessage("lblSelectManaProduce").equals(title)
+                || plannedManaColors.colors.isEmpty()) return null;
+        byte color = plannedManaColors.colors.removeFirst();
+        if (options.contains(color)) return color;
+        plannedManaColors.colors.clear();
+        return null; // A stale/illegal preference must never bypass the engine's offered colors.
+    }
+
     private List<Byte> colorOptions(ColorSet colors, boolean colorless) {
         List<Byte> options = new ArrayList<>();
         for (byte color : MagicColor.WUBRG) if (colors.hasAnyColor(color)) options.add(color);
@@ -870,12 +930,16 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     @Override
     public byte chooseColor(String title, SpellAbility sa, ColorSet colors) {
+        final Byte planned = sa == null ? null : plannedColor(title, sa.getHostCard(), colorOptions(colors, false));
+        if (planned != null) return planned;
         return one(context(sa, title + " Choose color (1=white, 2=blue, 4=black, 8=red, 16=green)"), colorOptions(colors, false), false,
                 () -> super.chooseColor(title, sa, colors));
     }
 
     @Override
     public byte chooseColorAllowColorless(String title, Card card, ColorSet colors) {
+        final Byte planned = plannedColor(title, card, colorOptions(colors, true));
+        if (planned != null) return planned;
         return one(title + " Choose color (0=colorless, 1=white, 2=blue, 4=black, 8=red, 16=green)", colorOptions(colors, true), false,
                 () -> super.chooseColorAllowColorless(title, card, colors));
     }
@@ -893,6 +957,16 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         if (!usesLlm()) return super.specifyManaCombo(sa, colors, amount, different);
         Map<Byte, Integer> result = new LinkedHashMap<>();
         List<Byte> options = colorOptions(colors, false);
+        if (plannedManaColors != null && sa != null && plannedManaColors.sourceId == sa.getHostCard().getId()
+                && !plannedManaColors.colors.isEmpty()) {
+            List<Byte> proposed = plannedManaColors.colors.stream().limit(amount).toList();
+            if (proposed.size() == amount && options.containsAll(proposed)
+                    && (!different || new HashSet<>(proposed).size() == amount)) {
+                proposed.forEach(color -> { plannedManaColors.colors.removeFirst(); result.merge(color, 1, Integer::sum); });
+                return result;
+            }
+            plannedManaColors.colors.clear();
+        }
         List<Byte> chosen = select(context(sa, "Choose " + amount + " mana colors (1=W, 2=U, 4=B, 8=R, 16=G)"), options,
                 amount, amount, !different, list -> true, () -> {
                     List<Byte> fallback = new ArrayList<>();

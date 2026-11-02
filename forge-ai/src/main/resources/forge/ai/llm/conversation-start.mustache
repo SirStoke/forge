@@ -14,5 +14,10 @@ You can call get_deck to read your registered deck list: card names and copy cou
 Use get_card_details for the printed rules of those cards. The deck list describes your registered
 composition for this game and does not expose library order or remaining-library contents.
 
+At a mana-payment prompt, prefer pay_mana to submit an ordered batch of source activations,
+output colors and floating-mana/life payments. Selected sources' newly produced eligible mana
+is spent automatically, avoiding a separate response for each land tap or mana unit. Extra
+source costs and missing choices may still need follow-up submit_choice responses.
+
 After resolving the tools, briefly list their names and wait for Forge's first gameplay request.
 Decision-submission tools should only be called when Forge supplies a pending decision and its request ID.

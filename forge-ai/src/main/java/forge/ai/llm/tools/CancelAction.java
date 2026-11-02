@@ -14,7 +14,7 @@ public record CancelAction(String requestId) {
         return Tool.builder().name(NAME)
                 .description("Cancel the action being cast or activated, using the CURRENT follow-up requestId. "
                         + "Only valid when that prompt explicitly offers cancel_action. Shares the pending decision "
-                        + "with submit_choice; submit one or the other, then finish your response. Forge aborts through "
+                        + "with submit_choice and pay_mana; submit one or the other, then finish your response. Forge aborts through "
                         + "its normal rollback/refund path and asks for another priority action without passing priority. "
                         + "Cannot cancel a completed action, a priority request, or a resolving effect.")
                 .inputSchema(Map.of("type", "object", "properties", Map.of(
