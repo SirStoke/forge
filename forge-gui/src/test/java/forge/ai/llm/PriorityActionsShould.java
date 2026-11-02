@@ -9,6 +9,8 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionResponse;
 import forge.ai.LobbyPlayerAi;
+import forge.ai.llm.tools.CancelAction;
+import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.PassPriority;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.SubmitChoice;
@@ -26,6 +28,7 @@ import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
+import forge.game.player.PlayerController.FullControlFlag;
 import forge.game.player.RegisteredPlayer;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
@@ -36,6 +39,8 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
+import io.modelcontextprotocol.json.McpJsonDefaults;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
@@ -48,7 +53,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -116,17 +120,33 @@ public class PriorityActionsShould {
                     Map.of("requestId", requestId, "cardId", cardId, "abilityId", abilityId));
         }
 
+        CallToolRequest list(String requestId) {
+            return new CallToolRequest(GetAvailableActions.NAME, Map.of("requestId", requestId));
+        }
+
+        PriorityActionsSnapshot actions(PromptRequest prompt) throws Exception {
+            final var result = mcp.callTool(list(requestId(prompt)));
+            Assert.assertFalse(result.isError(), result.toString());
+            final var snapshot = McpJsonDefaults.getMapper().readValue(
+                    ((TextContent) result.content().get(0)).text(), PriorityActionsSnapshot.class);
+            Assert.assertEquals(snapshot.requestId(), requestId(prompt));
+            Assert.assertFalse(snapshot.affordabilityChecked());
+            return snapshot;
+        }
+
         SpellAbility choose(Card card) {
-            when(client.prompt(any())).thenAnswer(invocation -> {
+            return choose(card, null);
+        }
+
+        SpellAbility choose(Card card, String kind) {
+            doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
-                final var action = Pattern.compile("cardId=" + card.getId() + ", abilityId=(\\d+)")
-                        .matcher(prompt.text());
-                Assert.assertTrue(action.find(), "Card must be offered in the priority prompt: " + prompt.text());
-                final String requestId = prompt.text().lines().filter(line -> line.startsWith("Request ID: "))
-                        .findFirst().orElseThrow().substring("Request ID: ".length());
-                Assert.assertFalse(mcp.callTool(play(requestId, card.getId(), Integer.parseInt(action.group(1)))).isError());
+                final var action = actions(prompt).actions().stream()
+                        .filter(option -> option.cardId() == card.getId() && (kind == null || option.kind().equals(kind)))
+                        .findFirst().orElseThrow();
+                Assert.assertFalse(mcp.callTool(play(requestId(prompt), card.getId(), action.abilityId())).isError());
                 return null;
-            });
+            }).when(client).prompt(any());
             final var selected = controller.chooseSpellAbilityToPlay();
             Assert.assertNotNull(selected);
             Assert.assertEquals(selected.size(), 1);
@@ -141,9 +161,19 @@ public class PriorityActionsShould {
         }
     }
 
-    private String requestId(PromptRequest prompt) {
+    private static String requestId(PromptRequest prompt) {
         return prompt.text().lines().filter(line -> line.startsWith("Request ID: "))
                 .findFirst().orElseThrow().substring("Request ID: ".length());
+    }
+
+    private static String describeActions(Player player, Map<PriorityDecision.PlayAction, SpellAbility> options) {
+        return describeActions(PriorityActionsSnapshot.capture(player, "request", options));
+    }
+
+    private static String describeActions(PriorityActionsSnapshot snapshot) {
+        return snapshot.actions().stream().map(action -> action.name() + " [" + action.zone() + "; "
+                + action.kind() + "; cost: " + action.cost() + "]: cardId=" + action.cardId()
+                + ", abilityId=" + action.abilityId() + ". " + action.description()).collect(java.util.stream.Collectors.joining("\n"));
     }
 
     @Test
@@ -157,19 +187,29 @@ public class PriorityActionsShould {
                     .findFirst().orElseThrow().getId();
             final Card opponentCard = session.card(session.opponent, ZoneType.Hand, "Opponent secret",
                     "ManaCost:0", "Types:Artifact", "Oracle:");
-            when(session.client.prompt(any())).thenAnswer(invocation -> {
+            doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
                 final String id = requestId(prompt);
-                Assert.assertTrue(prompt.text().contains("cardId=" + second.getId() + ", abilityId=" + abilityId));
-                Assert.assertFalse(prompt.text().contains("Opponent secret"));
+                Assert.assertTrue(prompt.text().contains(GetAvailableActions.NAME));
+                Assert.assertFalse(prompt.text().contains("Forest"), "Priority prompts must not contain the action list");
+                Assert.assertFalse(prompt.text().contains("cardId="));
+                Assert.assertTrue(session.mcp.callTool(session.list("wrong-request")).isError());
+                Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                        Map.of("requestId", id))).isError(), "Priority itself cannot be canceled");
+                final var snapshot = session.actions(prompt);
+                Assert.assertEquals(session.actions(prompt), snapshot, "Reads must not consume the decision");
+                final String actions = describeActions(snapshot);
+                Assert.assertTrue(actions.contains("cardId=" + second.getId() + ", abilityId=" + abilityId));
+                Assert.assertFalse(actions.contains("Opponent secret"));
                 Assert.assertTrue(session.mcp.callTool(session.play(id, opponentCard.getId(), abilityId)).isError());
                 Assert.assertTrue(session.mcp.callTool(session.play(id, second.getId(), Integer.MAX_VALUE)).isError());
                 Assert.assertFalse(session.mcp.callTool(session.play(id, second.getId(), abilityId)).isError());
                 Assert.assertTrue(session.mcp.callTool(new CallToolRequest(PassPriority.NAME,
                         Map.of("requestId", id))).isError());
+                Assert.assertTrue(session.mcp.callTool(session.list(id)).isError(), "Accepted requests must expire");
                 Assert.assertTrue(second.isInZone(ZoneType.Hand), "The MCP thread must not execute the play");
                 return null;
-            });
+            }).when(session.client).prompt(any());
             final var selected = session.controller.chooseSpellAbilityToPlay();
             Assert.assertNotNull(selected);
             Assert.assertEquals(selected.size(), 1);
@@ -194,11 +234,11 @@ public class PriorityActionsShould {
                     "Oracle:Lightning Bolt deals 3 damage to any target.");
             final int abilityId = bolt.getSpellAbilities().get(0).getId();
             session.game.getAction().checkStaticAbilities();
-            when(session.client.prompt(any())).thenAnswer(invocation -> {
+            doAnswer(invocation -> {
                 final String id = requestId(invocation.getArgument(0));
                 Assert.assertFalse(session.mcp.callTool(session.play(id, bolt.getId(), abilityId)).isError());
                 return null;
-            });
+            }).when(session.client).prompt(any());
             final var selected = session.controller.chooseSpellAbilityToPlay();
             Assert.assertNotNull(selected);
             Assert.assertTrue(selected.get(0).getTargets().isEmpty());
@@ -251,7 +291,9 @@ public class PriorityActionsShould {
             Assert.assertTrue(source.isTapped());
             Assert.assertEquals(session.player.getManaPool().totalMana(), 1);
             Assert.assertTrue(session.game.getStack().isEmpty());
-            Assert.assertTrue(PriorityActions.available(session.player).isEmpty(), "A tapped source cannot activate again");
+            Assert.assertFalse(PriorityActions.available(session.player).isEmpty(), "Tap-cost affordability is not checked when listing");
+            Assert.assertFalse(session.controller.playChosenSpellAbility(ability), "Actual payment still rejects a tapped source");
+            Assert.assertEquals(session.player.getManaPool().totalMana(), 1);
         }
     }
 
@@ -261,7 +303,7 @@ public class PriorityActionsShould {
             final Card card = session.card(session.player, ZoneType.Hand, "Hand activation",
                     "ManaCost:5", "Types:Artifact", "Oracle:",
                     "A:AB$ GainLife | Cost$ 0 | ActivationZone$ Hand | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
-            final SpellAbility ability = session.choose(card);
+            final SpellAbility ability = session.choose(card, "Activate ability");
             Assert.assertTrue(ability.isActivatedAbility());
             Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
             Assert.assertTrue(card.isInZone(ZoneType.Hand));
@@ -275,7 +317,7 @@ public class PriorityActionsShould {
             final Card card = session.card(session.player, ZoneType.Battlefield, "Morph creature",
                     "ManaCost:5", "Types:Creature", "PT:3/3", "Oracle:", "K:Morph:0");
             card.turnFaceDown(true);
-            Assert.assertTrue(PriorityPrompt.render(session.player, "request", PriorityActions.available(session.player))
+            Assert.assertTrue(describeActions(session.player, PriorityActions.available(session.player))
                     .contains("Morph creature [Battlefield; Special action; cost:"));
             final SpellAbility ability = session.choose(card);
             Assert.assertTrue(ability.isTurnFaceUp());
@@ -304,7 +346,7 @@ public class PriorityActionsShould {
             final SpellAbility ability = session.choose(card);
             final var options = PriorityActions.available(session.player);
             Assert.assertFalse(options.values().stream().anyMatch(sa -> sa.getHostCard() == forbidden));
-            final String prompt = PriorityPrompt.render(session.player, "request", options);
+            final String prompt = describeActions(session.player, options);
             Assert.assertTrue(prompt.contains("[" + zone + "; Cast spell; cost:"));
             Assert.assertFalse(prompt.contains("Forbidden external spell"));
             Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
@@ -314,7 +356,7 @@ public class PriorityActionsShould {
     }
 
     @Test
-    public void offerFlashbackAndExcludeHiddenCardsAndUnusableAbilities() {
+    public void offerFlashbackAndUnaffordableActionsWhileExcludingHiddenCardsAndMissingTargets() {
         try (var session = new Session()) {
             final Card flashback = session.card(session.player, ZoneType.Graveyard, "Flashback spell",
                     "ManaCost:5", "Types:Instant", "Oracle:", "K:Flashback:0",
@@ -331,12 +373,12 @@ public class PriorityActionsShould {
                     "ManaCost:0", "Types:Artifact", "Oracle:",
                     "A:AB$ Destroy | Cost$ 0 | ValidTgts$ Creature | SpellDescription$ Destroy target creature.");
             final var options = PriorityActions.available(session.player);
-            Assert.assertEquals(options.size(), 1);
-            Assert.assertTrue(options.values().iterator().next().isFlashback());
-            final String prompt = PriorityPrompt.render(session.player, "request", options);
+            Assert.assertEquals(options.size(), 2);
+            Assert.assertTrue(options.values().stream().anyMatch(SpellAbility::isFlashback));
+            final String prompt = describeActions(session.player, options);
             Assert.assertTrue(prompt.contains("Flashback spell [Graveyard; Cast spell; cost:"));
-            for (String absent : List.of("Secret hand", "Secret library", "Opponent ability",
-                    "Unaffordable activation", "No legal target")) {
+            Assert.assertTrue(prompt.contains("Unaffordable activation"));
+            for (String absent : List.of("Secret hand", "Secret library", "Opponent ability", "No legal target")) {
                 Assert.assertFalse(prompt.contains(absent), absent);
             }
             final SpellAbility ability = session.choose(flashback);
@@ -363,7 +405,7 @@ public class PriorityActionsShould {
             final var options = PriorityActions.available(session.player);
             Assert.assertTrue(options.values().stream().anyMatch(sa -> sa.getHostCard() == top));
             Assert.assertTrue(options.values().stream().anyMatch(sa -> sa.getHostCard() == exiled));
-            Assert.assertFalse(PriorityPrompt.render(session.player, "request", options).contains("Hidden second card"));
+            Assert.assertFalse(describeActions(session.player, options).contains("Hidden second card"));
             final SpellAbility ability = session.choose(exiled);
             Assert.assertTrue(session.controller.playChosenSpellAbility(ability));
             Assert.assertTrue(exiled.isInZone(ZoneType.Stack));
@@ -395,19 +437,21 @@ public class PriorityActionsShould {
                     "ManaCost:0", "Types:Artifact", "Oracle:");
             final int abilityId = card.getSpellAbilities().get(0).getId();
             final var previousId = new AtomicReference<String>();
-            when(session.client.prompt(any())).thenAnswer(invocation -> {
+            doAnswer(invocation -> {
                 final String id = requestId(invocation.getArgument(0));
                 final String old = previousId.getAndSet(id);
                 if (old == null) {
                     Assert.assertFalse(session.mcp.callTool(new CallToolRequest(PassPriority.NAME,
                             Map.of("requestId", id))).isError());
                     Assert.assertTrue(session.mcp.callTool(session.play(id, card.getId(), abilityId)).isError());
+                    Assert.assertTrue(session.mcp.callTool(session.list(id)).isError());
                     return null;
                 }
                 Assert.assertTrue(session.mcp.callTool(session.play(old, card.getId(), abilityId)).isError());
+                Assert.assertTrue(session.mcp.callTool(session.list(old)).isError());
                 Assert.assertFalse(session.mcp.callTool(session.play(id, card.getId(), abilityId)).isError());
                 throw new IllegalStateException("ACP failed after accepting the play");
-            });
+            }).when(session.client).prompt(any());
             Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
             final var selected = session.controller.chooseSpellAbilityToPlay();
             Assert.assertNotNull(selected);
@@ -418,7 +462,7 @@ public class PriorityActionsShould {
     }
 
     @Test
-    public void distinguishCastingOptionsAndExcludePlaysWithWrongTimingOrInsufficientMana() {
+    public void distinguishCastingOptionsAndIncludeUnaffordableSpellsWhileEnforcingTiming() {
         try (var session = new Session()) {
             final Card instant = session.card(session.player, ZoneType.Hand, "Two options",
                     "ManaCost:0", "Types:Instant", "Oracle:",
@@ -433,16 +477,17 @@ public class PriorityActionsShould {
             session.game.getPhaseHandler().setPriority(session.player);
             final int firstId = instant.getSpellAbilities().get(0).getId();
             final int secondId = instant.getSpellAbilities().get(1).getId();
-            when(session.client.prompt(any())).thenAnswer(invocation -> {
+            doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
-                Assert.assertTrue(prompt.text().contains("abilityId=" + firstId));
-                Assert.assertTrue(prompt.text().contains("abilityId=" + secondId));
-                Assert.assertFalse(prompt.text().contains("Unaffordable spell"));
-                Assert.assertFalse(prompt.text().contains("Sorcery speed"));
-                Assert.assertFalse(prompt.text().contains("Forest"));
+                final String actions = describeActions(session.actions(prompt));
+                Assert.assertTrue(actions.contains("abilityId=" + firstId));
+                Assert.assertTrue(actions.contains("abilityId=" + secondId));
+                Assert.assertTrue(actions.contains("Unaffordable spell"));
+                Assert.assertFalse(actions.contains("Sorcery speed"));
+                Assert.assertFalse(actions.contains("Forest"));
                 Assert.assertFalse(session.mcp.callTool(session.play(requestId(prompt), instant.getId(), secondId)).isError());
                 return null;
-            });
+            }).when(session.client).prompt(any());
             final var selected = session.controller.chooseSpellAbilityToPlay();
             Assert.assertNotNull(selected);
             Assert.assertEquals(selected.get(0).getId(), secondId);
@@ -456,10 +501,10 @@ public class PriorityActionsShould {
         try (var session = new Session()) {
             session.card(session.player, ZoneType.Hand, "Zero artifact", "ManaCost:0", "Types:Artifact", "Oracle:");
             final var lastId = new AtomicReference<String>();
-            when(session.client.prompt(any())).thenAnswer(invocation -> {
+            doAnswer(invocation -> {
                 lastId.set(requestId(invocation.getArgument(0)));
                 return null;
-            });
+            }).when(session.client).prompt(any());
             Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
             Assert.expectThrows(IllegalStateException.class,
                     () -> session.agent.priorityDecision().call(lastId.get(), new PriorityDecision.Pass()));
@@ -470,10 +515,233 @@ public class PriorityActionsShould {
             Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
             Assert.expectThrows(IllegalStateException.class,
                     () -> session.agent.priorityDecision().call(lastId.get(), new PriorityDecision.Pass()));
+            Assert.assertTrue(session.mcp.callTool(session.list(lastId.get())).isError());
             session.game.markAsSimulationCopy();
             org.mockito.Mockito.clearInvocations(session.client);
             Assert.assertNotNull(session.controller.chooseSpellAbilityToPlay(), "Simulation copies use local AI");
             org.mockito.Mockito.verify(session.client, org.mockito.Mockito.never()).prompt(any());
+        }
+    }
+
+    @Test
+    public void listMissingNonmanaResourcesWithoutProbingPaymentOrChangingControllerSettings() {
+        try (var session = new Session()) {
+            final Card source = session.card(session.player, ZoneType.Battlefield, "Missing sacrifice",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ GainLife | Cost$ Sac<1/Creature> | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            session.card(session.player, ZoneType.Hand, "Missing mana", "ManaCost:9", "Types:Artifact", "Oracle:");
+            final var controls = session.controller.getFullControl();
+            Assert.assertFalse(controls.contains(FullControlFlag.AllowPaymentStartWithMissingResources));
+            org.mockito.Mockito.clearInvocations(session.client);
+            final var options = PriorityActions.available(session.player);
+            Assert.assertEquals(options.size(), 2);
+            Assert.assertFalse(controls.contains(FullControlFlag.AllowPaymentStartWithMissingResources));
+            org.mockito.Mockito.verify(session.client, org.mockito.Mockito.never()).prompt(any());
+            final var activation = options.values().stream().filter(sa -> sa.getHostCard() == source).findFirst().orElseThrow();
+            Assert.assertFalse(activation.canPlay(), "Actual cost eligibility must still be enforced outside listing");
+            controls.add(FullControlFlag.AllowPaymentStartWithMissingResources);
+            Assert.assertEquals(PriorityActions.available(session.player).size(), 2);
+            Assert.assertTrue(controls.contains(FullControlFlag.AllowPaymentStartWithMissingResources), "Preserve existing full control");
+            controls.remove(FullControlFlag.AllowPaymentStartWithMissingResources);
+        }
+    }
+
+    @Test
+    public void cancelPartialManaPaymentAndChooseAnotherActionWithoutPassingPriority() {
+        try (var session = new Session()) {
+            final Card first = session.card(session.player, ZoneType.Battlefield, "First source",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T | Produced$ R | SpellDescription$ Add {R}.");
+            session.card(session.player, ZoneType.Battlefield, "Second source",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T | Produced$ R | SpellDescription$ Add {R}.");
+            final Card spell = session.card(session.player, ZoneType.Hand, "Two mana spell",
+                    "ManaCost:1 R", "Types:Instant", "Oracle:",
+                    "A:SP$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            final Card other = session.card(session.player, ZoneType.Hand, "Another action",
+                    "ManaCost:0", "Types:Artifact", "Oracle:");
+            session.game.getAction().checkStaticAbilities();
+            final SpellAbility chosen = session.choose(spell);
+            final var canceledId = new AtomicReference<String>();
+            final java.util.concurrent.atomic.AtomicInteger step = new java.util.concurrent.atomic.AtomicInteger();
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                final String id = requestId(prompt);
+                Assert.assertTrue(prompt.text().contains("You may call cancel_action"));
+                Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                        Map.of("requestId", "stale"))).isError());
+                if (step.getAndIncrement() < 2) {
+                    final String label = step.get() == 1 ? "Activate mana ability: First source" : "Spend floating";
+                    final int index = prompt.text().lines().filter(line -> line.matches("\\d+: .*"))
+                            .filter(line -> line.contains(label))
+                            .mapToInt(line -> Integer.parseInt(line.substring(0, line.indexOf(':')))).findFirst().orElseThrow();
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                            Map.of("requestId", id, "choices", List.of(index)))).isError());
+                    Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                            Map.of("requestId", id))).isError(), "An accepted choice cannot be canceled afterward");
+                } else {
+                    canceledId.set(id);
+                    Assert.assertTrue(first.isTapped(), "Exercise cancellation after partially spending mana");
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                            Map.of("requestId", id))).isError());
+                    Assert.assertTrue(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                            Map.of("requestId", id, "choices", List.of()))).isError());
+                    Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                            Map.of("requestId", id))).isError(), "Cancel can only win once");
+                    Assert.assertTrue(spell.isInZone(ZoneType.Stack), "Rollback must wait for the game thread");
+                    throw new IllegalStateException("ACP failed after accepting cancellation");
+                }
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertFalse(session.controller.playChosenSpellAbility(chosen));
+            Assert.assertEquals(step.get(), 3);
+            Assert.assertNotNull(canceledId.get());
+            Assert.assertTrue(session.game.getStack().isEmpty());
+            Assert.assertTrue(session.game.getStackZone().isEmpty());
+            Assert.assertTrue(spell.isInZone(ZoneType.Hand));
+            Assert.assertFalse(first.isTapped(), "Undoable mana production must be refunded");
+            Assert.assertEquals(session.player.getManaPool().totalMana(), 0);
+            Assert.assertTrue(session.controller.playChosenSpellAbility(session.choose(other)),
+                    "Cancellation must offer another priority decision immediately");
+            Assert.assertTrue(other.isInZone(ZoneType.Stack));
+        }
+    }
+
+    @Test
+    public void propagateCancellationFromManaSourceCostsToTheOuterAction() {
+        try (var session = new Session()) {
+            final Card source = session.card(session.player, ZoneType.Battlefield, "Life source",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T PayLife<2> | Produced$ R | SpellDescription$ Add {R}.");
+            final Card spell = session.card(session.player, ZoneType.Hand, "One mana spell",
+                    "ManaCost:R", "Types:Instant", "Oracle:",
+                    "A:SP$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            final Card other = session.card(session.player, ZoneType.Hand, "Another action",
+                    "ManaCost:0", "Types:Artifact", "Oracle:");
+            final var count = new java.util.concurrent.atomic.AtomicInteger();
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                count.incrementAndGet();
+                final String id = requestId(prompt);
+                if (prompt.text().contains("Decision: Order cost")) {
+                    final List<Integer> order = prompt.text().lines().filter(line -> line.matches("\\d+: .*"))
+                            .map(line -> Integer.parseInt(line.substring(0, line.indexOf(':')))).toList();
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                            Map.of("requestId", id, "choices", order))).isError());
+                } else if (prompt.text().contains("Pay this cost?")) {
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                            Map.of("requestId", id))).isError());
+                } else {
+                    final int index = prompt.text().lines().filter(line -> line.matches("\\d+: .*"))
+                            .filter(line -> line.contains("Activate mana ability: Life source"))
+                            .mapToInt(line -> Integer.parseInt(line.substring(0, line.indexOf(':')))).findFirst().orElseThrow();
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                            Map.of("requestId", id, "choices", List.of(index)))).isError());
+                }
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertFalse(session.controller.playChosenSpellAbility(spell.getSpellAbilities().get(0)));
+            Assert.assertEquals(count.get(), 3, "Nested cancellation must stop the outer mana loop");
+            Assert.assertTrue(spell.isInZone(ZoneType.Hand));
+            Assert.assertTrue(session.game.getStack().isEmpty());
+            Assert.assertFalse(source.isTapped());
+            Assert.assertEquals(session.player.getLife(), 20);
+            Assert.assertEquals(session.player.getManaPool().totalMana(), 0);
+            Assert.assertNotNull(session.choose(other));
+        }
+    }
+
+    @DataProvider
+    public Object[][] cancellableCastingSteps() {
+        return new Object[][] {
+                { "targets", new String[] { "ManaCost:0", "Types:Instant", "Oracle:",
+                        "A:SP$ DealDamage | ValidTgts$ Any | NumDmg$ 1 | SpellDescription$ Deal 1 damage." } },
+                { "modes", new String[] { "ManaCost:0", "Types:Instant", "Oracle:",
+                        "A:SP$ Charm | Choices$ Draw,Life | CharmNum$ 1 | SpellDescription$ Choose one.",
+                        "SVar:Draw:DB$ Draw | Defined$ You | NumCards$ 1 | SpellDescription$ Draw a card.",
+                        "SVar:Life:DB$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } },
+                { "mana with no sources", new String[] { "ManaCost:R", "Types:Instant", "Oracle:",
+                        "A:SP$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } },
+                { "X", new String[] { "ManaCost:X", "Types:Instant", "Oracle:",
+                        "A:SP$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } },
+                { "casting variant", new String[] { "ManaCost:0", "Types:Instant", "Oracle:",
+                        "K:AlternateAdditionalCost:0:1",
+                        "A:SP$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } },
+                { "optional costs", new String[] { "ManaCost:0", "Types:Instant", "Oracle:", "K:Kicker:1",
+                        "A:SP$ GainLife | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } },
+                { "sacrifice", new String[] { "ManaCost:0", "Types:Instant", "Oracle:",
+                        "A:SP$ GainLife | Cost$ Sac<1/Creature> | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } },
+                { "life payment", new String[] { "ManaCost:0", "Types:Instant", "Oracle:",
+                        "A:SP$ GainLife | Cost$ PayLife<2> | Defined$ You | LifeAmount$ 1 | SpellDescription$ Gain 1 life." } }
+        };
+    }
+
+    @Test(dataProvider = "cancellableCastingSteps")
+    public void cancelDuringCastingWithoutCompletingTheChoiceUsingAi(String step, String[] script) {
+        try (var session = new Session()) {
+            final Card spell = session.card(session.player, ZoneType.Hand, "Cancel " + step, script);
+            session.card(session.player, ZoneType.Battlefield, "Creature one",
+                    "ManaCost:0", "Types:Creature", "PT:1/1", "Oracle:");
+            session.card(session.player, ZoneType.Battlefield, "Creature two",
+                    "ManaCost:0", "Types:Creature", "PT:1/1", "Oracle:");
+            final Card other = session.card(session.player, ZoneType.Hand, "Another action",
+                    "ManaCost:0", "Types:Artifact", "Oracle:");
+            final var count = new java.util.concurrent.atomic.AtomicInteger();
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                Assert.assertTrue(prompt.text().contains("You may call cancel_action"), prompt.text());
+                Assert.assertFalse(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                        Map.of("requestId", requestId(prompt)))).isError());
+                count.incrementAndGet();
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertFalse(session.controller.playChosenSpellAbility(spell.getSpellAbilities().get(0)), step);
+            Assert.assertEquals(count.get(), 1, "Cancellation must stop casting without another prompt");
+            Assert.assertTrue(spell.isInZone(ZoneType.Hand));
+            Assert.assertTrue(session.game.getStack().isEmpty());
+            Assert.assertTrue(session.game.getStackZone().isEmpty());
+            Assert.assertEquals(session.player.getCardsIn(ZoneType.Battlefield).size(), 2);
+            Assert.assertEquals(session.player.getLife(), 20);
+            Assert.assertNotNull(session.choose(other), "Canceled " + step + " must retain priority");
+        }
+    }
+
+    @Test
+    public void rejectCancellationForOrdinaryChoicesWithoutConsumingTheRequest() {
+        try (var session = new Session()) {
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                final String id = requestId(prompt);
+                Assert.assertFalse(prompt.text().contains("You may call cancel_action"));
+                Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
+                        Map.of("requestId", id))).isError());
+                Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                        Map.of("requestId", id, "value", 2))).isError());
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertEquals(session.controller.chooseNumber(null, "Effect choice", 1, 3), 2);
+        }
+    }
+
+    @Test
+    public void validateCancelActionToolArguments() {
+        Assert.assertEquals(CancelAction.compile(new CallToolRequest(CancelAction.NAME,
+                Map.of("requestId", "request"))), new CancelAction("request"));
+        for (Map<String, Object> invalid : List.<Map<String, Object>>of(Map.of(), Map.of("requestId", " "),
+                Map.of("requestId", 1), Map.of("requestId", "request", "extra", true))) {
+            Assert.expectThrows(IllegalArgumentException.class, () -> CancelAction.compile(
+                    new CallToolRequest(CancelAction.NAME, invalid)));
+        }
+    }
+
+    @Test
+    public void validateAvailableActionsToolArguments() {
+        Assert.assertEquals(GetAvailableActions.compile(new CallToolRequest(GetAvailableActions.NAME,
+                Map.of("requestId", "request"))), new GetAvailableActions("request"));
+        for (Map<String, Object> invalid : List.<Map<String, Object>>of(Map.of(), Map.of("requestId", " "),
+                Map.of("requestId", 1), Map.of("requestId", "request", "extra", true))) {
+            Assert.expectThrows(IllegalArgumentException.class, () -> GetAvailableActions.compile(
+                    new CallToolRequest(GetAvailableActions.NAME, invalid)));
         }
     }
 

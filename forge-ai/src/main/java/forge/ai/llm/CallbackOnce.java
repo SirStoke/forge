@@ -37,6 +37,12 @@ public final class CallbackOnce<I, O> {
         return request.callback().call(input);
     }
 
+    /** Inspect request lifetime without consuming its callback. */
+    public boolean isPending(String requestId) {
+        final var request = pending.get();
+        return request != null && request.id().equals(requestId);
+    }
+
     /** Cancel only the matching request; a callback already claimed by call() will still run. */
     public boolean cancel(String requestId) {
         final var request = pending.get();

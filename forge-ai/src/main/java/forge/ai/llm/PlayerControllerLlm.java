@@ -108,8 +108,7 @@ public class PlayerControllerLlm extends LlmDecisionController {
             return null;
         }
         try {
-            // Candidate affordability probes may invoke controller callbacks (e.g. convoke).
-            // They must use local decisions rather than starting speculative harness requests.
+            // Preparing alternative actions must not start speculative harness requests.
             final var options = locally(() -> PriorityActions.available(player));
             if (options.isEmpty()) {
                 return null;
@@ -121,17 +120,19 @@ public class PlayerControllerLlm extends LlmDecisionController {
                         || choice instanceof PriorityDecision.Pass) {
                     return;
                 }
-                throw new IllegalArgumentException("Choose a cardId and abilityId pair from the priority prompt, or pass.");
+                throw new IllegalArgumentException("Choose a cardId and abilityId pair returned by get_available_actions, or pass.");
             }, choice -> {
                 // Only publish IDs here; all game objects stay on the game thread.
                 decision.complete(choice);
                 return "Priority decision accepted. Finish your response so Forge can execute it.";
             });
             try {
-                agent.prompt(PriorityPrompt.render(player, requestId, options));
+                agent.setPriorityActions(PriorityActionsSnapshot.capture(player, requestId, options));
+                agent.prompt(PriorityPrompt.render(player, requestId));
             } catch (RuntimeException e) {
                 Logger.error(e, "Could not request a priority decision for {}", player.getName());
             } finally {
+                agent.clearPriorityActions(requestId);
                 if (callback.cancel(requestId)) {
                     decision.complete(new PriorityDecision.Pass());
                 }
@@ -147,11 +148,20 @@ public class PlayerControllerLlm extends LlmDecisionController {
 
     @Override
     public boolean playChosenSpellAbility(SpellAbility ability) {
-        boolean played = PlaySpellAbility.playSpellAbility(this, player, ability);
-        if (!played) {
-            passAfterFailedPlay = true;
-            notifyOfValue(ability, null, "The previous play failed or was canceled: " + ability.getDescription());
+        beginPriorityAction();
+        try {
+            boolean played = PlaySpellAbility.playSpellAbility(this, player, ability);
+            if (!played) {
+                // Deliberate cancellation keeps priority. Unanswered/failed execution still
+                // passes once to avoid retrying an unpayable action indefinitely.
+                passAfterFailedPlay = !actionWasCanceled();
+                notifyOfValue(ability, null, actionWasCanceled()
+                        ? "The previous action was canceled. You still have priority: " + ability.getDescription()
+                        : "The previous play failed or was canceled: " + ability.getDescription());
+            }
+            return played;
+        } finally {
+            endPriorityAction();
         }
-        return played;
     }
 }

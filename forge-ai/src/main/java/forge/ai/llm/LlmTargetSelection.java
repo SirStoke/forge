@@ -74,7 +74,7 @@ final class LlmTargetSelection {
                 if (valid) selected.add(next);
             }
         } else {
-            selected = controller.select(controller.context(sa, "Choose targets; each option may be chosen once. "
+            selected = controller.selectCancelable(controller.context(sa, "Choose targets; each option may be chosen once. "
                             + "Targets must satisfy all restrictions: " + sa.getTargetRestrictions().getValidDesc()),
                     options, min, max, false, legal, () -> null);
         }

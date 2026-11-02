@@ -14,7 +14,7 @@ public record PlayAction(String requestId, int cardId, int abilityId) {
         return Tool.builder().name(NAME)
                 .description("Choose a spell to cast, land to play, ability to activate, or special action "
                         + "from any permitted zone for the pending priority request. "
-                        + "Use a cardId and abilityId pair from that request's available actions. "
+                        + "Use a cardId and abilityId pair returned by get_available_actions for that request. "
                         + "Forge executes the choice after your response and requests follow-up choices through submit_choice.")
                 .inputSchema(Map.of(
                         "type", "object",
@@ -22,9 +22,9 @@ public record PlayAction(String requestId, int cardId, int abilityId) {
                                 "requestId", Map.of("type", "string", "minLength", 1,
                                         "description", "Request ID from the priority prompt"),
                                 "cardId", Map.of("type", "integer", "minimum", 0,
-                                        "description", "ID of the source card instance from the priority prompt"),
+                                        "description", "ID of the source card instance returned by get_available_actions"),
                                 "abilityId", Map.of("type", "integer", "minimum", 0,
-                                        "description", "ID of the action from the priority prompt")),
+                                        "description", "ID of the action returned by get_available_actions")),
                         "required", List.of("requestId", "cardId", "abilityId"),
                         "additionalProperties", false))
                 .build();

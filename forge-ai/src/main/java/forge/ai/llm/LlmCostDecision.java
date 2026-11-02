@@ -48,7 +48,7 @@ final class LlmCostDecision extends CostDecisionMakerBase {
 
     private PaymentDecision choose(CostPart cost, CardCollectionView options, int min, int max, Predicate<List<Card>> legal) {
         if (options.size() < min) return null;
-        List<Card> selected = controller.select(controller.context(ability, "Choose " + min + ".." + max + " cards to pay: " + cost
+        List<Card> selected = controller.selectCancelable(controller.context(ability, "Choose " + min + ".." + max + " cards to pay: " + cost
                         + ". Select no options to cancel payment."),
                 new ArrayList<>(options), 0, max, false,
                 chosen -> chosen.isEmpty() || chosen.size() >= min && legal.test(chosen), () -> null);
@@ -223,7 +223,7 @@ final class LlmCostDecision extends CostDecisionMakerBase {
         List<String> options = new ArrayList<>();
         if (!food.isEmpty()) options.add("Sacrifice a Food");
         if (grave.size() >= 3) options.add("Exile three cards from graveyard");
-        String choice = controller.one(controller.context(ability, "Choose how to forage"), options, true, () -> null);
+        String choice = controller.oneCancelable(controller.context(ability, "Choose how to forage"), options, true, () -> null);
         return choice == null ? null : choice.equals("Sacrifice a Food") ? choose(cost, food, 1, 1, list -> true) : choose(cost, grave, 3, 3, list -> true);
     }
 
@@ -236,7 +236,7 @@ final class LlmCostDecision extends CostDecisionMakerBase {
         }
         int count = "All".equals(cost.getType()) ? options.size() : amount(cost);
         if (options.size() < count) return null;
-        List<SpellAbility> chosen = controller.select(controller.context(ability, "Exile spells from stack to pay " + cost), options, count, count, () -> null);
+        List<SpellAbility> chosen = controller.selectCancelable(controller.context(ability, "Exile spells from stack to pay " + cost), options, count, count, () -> null);
         return chosen == null ? null : PaymentDecision.spellabilities(chosen);
     }
 
@@ -273,13 +273,13 @@ final class LlmCostDecision extends CostDecisionMakerBase {
         List<Player> options = cost.getPotentialTargets(player, ability).stream().filter(Player::canGainLife).toList();
         int count = cost.getCntPlayers() == Integer.MAX_VALUE ? options.size() : cost.getCntPlayers();
         if (options.size() < count) return null;
-        List<Player> chosen = controller.select(controller.context(ability, "Choose players to pay " + cost), options, count, count, () -> null);
+        List<Player> chosen = controller.selectCancelable(controller.context(ability, "Choose players to pay " + cost), options, count, count, () -> null);
         return chosen == null ? null : PaymentDecision.players(chosen);
     }
 
     @Override
     public PaymentDecision visit(CostPromiseGift cost) {
-        Player chosen = controller.one(controller.context(ability, "Choose opponent to promise a gift"), cost.getPotentialPlayers(player, ability), false, () -> null);
+        Player chosen = controller.oneCancelable(controller.context(ability, "Choose opponent to promise a gift"), cost.getPotentialPlayers(player, ability), false, () -> null);
         return chosen == null ? null : PaymentDecision.players(List.of(chosen));
     }
 
@@ -328,7 +328,7 @@ final class LlmCostDecision extends CostDecisionMakerBase {
         }
         final int needed = count;
         if (options.isEmpty() || count < 0) return null;
-        List<CounterChoice> selected = controller.select(controller.context(ability, "Choose one option per counter to remove for " + cost
+        List<CounterChoice> selected = controller.selectCancelable(controller.context(ability, "Choose one option per counter to remove for " + cost
                         + ". Repeated indices remove multiple counters of that type."), options, count, count, true,
                 chosen -> {
                     if (oneCard && chosen.stream().map(CounterChoice::card).distinct().count() > 1) return false;
@@ -353,7 +353,7 @@ final class LlmCostDecision extends CostDecisionMakerBase {
         CardCollection options = sourceOrValid(cost, player.getCardsIn(cost.zone));
         int count = "All".equals(cost.getAmount()) ? 0 : amount(cost);
         if ("All".equals(cost.getAmount()) || count < 0) {
-            Card card = controller.one(controller.context(ability, "Choose card to remove all counters for " + cost), options, false, () -> null);
+            Card card = controller.oneCancelable(controller.context(ability, "Choose card to remove all counters for " + cost), options, false, () -> null);
             if (card == null) return null;
             count = cost.counter == null ? card.getNumAllCounters() : card.getCounters(cost.counter);
             options = new CardCollection(card);

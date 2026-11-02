@@ -121,8 +121,16 @@ final class CodexAcpAgent implements AutoCloseable {
         return mcpServer.priorityDecision();
     }
 
-    CallbackOnce<forge.ai.llm.tools.SubmitChoice, String> choiceDecision() {
+    CallbackOnce<ChoiceDecision, String> choiceDecision() {
         return mcpServer.choiceDecision();
+    }
+
+    void setPriorityActions(PriorityActionsSnapshot snapshot) {
+        mcpServer.setPriorityActions(snapshot);
+    }
+
+    void clearPriorityActions(String requestId) {
+        mcpServer.clearPriorityActions(requestId);
     }
 
     void prompt(String text) {

@@ -42,6 +42,22 @@ abstract class LlmDecisionController extends PlayerControllerAi {
     private final List<String> notices = new ArrayList<>();
     private int localDecisions;
     private int manaPaymentDepth;
+    private boolean preparingPriorityAction;
+    private boolean actionCanceled;
+
+    final void beginPriorityAction() {
+        preparingPriorityAction = true;
+        actionCanceled = false;
+    }
+
+    final void endPriorityAction() {
+        preparingPriorityAction = false;
+        actionCanceled = false;
+    }
+
+    final boolean actionWasCanceled() {
+        return actionCanceled;
+    }
 
     LlmDecisionController(Game game, Player player, LobbyPlayer lobbyPlayer) {
         super(game, player, lobbyPlayer);
@@ -60,12 +76,18 @@ abstract class LlmDecisionController extends PlayerControllerAi {
     }
 
     private SubmitChoice request(String title, List<String> labels, int min, int max, boolean repeat,
-                                 boolean number) {
-        var future = new CompletableFuture<SubmitChoice>();
+                                 boolean number, boolean cancellable) {
+        final boolean canCancel = cancellable && preparingPriorityAction;
+        var future = new CompletableFuture<ChoiceDecision>();
         var callback = decisionAgent().choiceDecision();
         // The validator captures only immutable labels and scalar bounds, never live engine objects.
         int size = labels.size();
-        String id = callback.register(answer -> {
+        String id = callback.register(decision -> {
+            if (decision instanceof ChoiceDecision.Cancel) {
+                if (!canCancel) throw new IllegalArgumentException("This prompt does not allow cancel_action.");
+                return;
+            }
+            SubmitChoice answer = ((ChoiceDecision.Choose) decision).answer();
             if (number) {
                 if (answer.choices() != null || answer.value() == null || answer.value() < min || answer.value() > max) {
                     throw new IllegalArgumentException("Supply value between " + min + " and " + max);
@@ -78,7 +100,9 @@ abstract class LlmDecisionController extends PlayerControllerAi {
             }
         }, answer -> {
             future.complete(answer);
-            return "Choice accepted. Finish this response so Forge can continue.";
+            return answer instanceof ChoiceDecision.Cancel
+                    ? "Action cancellation accepted. Finish this response so Forge can abort it and offer another action without passing priority."
+                    : "Choice accepted. Finish this response so Forge can continue.";
         });
         StringBuilder prompt = new StringBuilder("You are playing as ").append(player.getName())
                 .append(".\nRequest ID: ").append(id).append("\nDecision: ").append(title).append('\n');
@@ -103,6 +127,10 @@ abstract class LlmDecisionController extends PlayerControllerAi {
                 prompt.append(i).append(": ").append(labels.get(i)).append('\n');
             }
         }
+        if (canCancel) {
+            prompt.append("You may call cancel_action with requestId \"").append(id)
+                    .append("\" instead to cancel this action without passing priority.\n");
+        }
         prompt.append("Submit exactly one choice, then finish your response. A text reply is not a decision.");
         try {
             decisionAgent().prompt(prompt.toString());
@@ -113,11 +141,29 @@ abstract class LlmDecisionController extends PlayerControllerAi {
                 future.complete(null);
             }
         }
-        return future.join();
+        final ChoiceDecision decision = future.join();
+        if (decision instanceof ChoiceDecision.Cancel) {
+            // Set only on the game thread, after ACP returns. No fallback may complete this canceled choice.
+            actionCanceled = true;
+            return null;
+        }
+        return decision instanceof ChoiceDecision.Choose chosen ? chosen.answer() : null;
     }
 
     final <T> List<T> select(String title, List<T> options, int min, int max, boolean repeat,
                               Predicate<List<T>> valid, Supplier<List<T>> fallback) {
+        return select(title, options, min, max, repeat, valid, fallback, false);
+    }
+
+    /** Only use at an engine boundary that treats null as an aborted cast/payment. */
+    final <T> List<T> selectCancelable(String title, List<T> options, int min, int max, boolean repeat,
+                                     Predicate<List<T>> valid, Supplier<List<T>> fallback) {
+        return select(title, options, min, max, repeat, valid, fallback, true);
+    }
+
+    private <T> List<T> select(String title, List<T> options, int min, int max, boolean repeat,
+                               Predicate<List<T>> valid, Supplier<List<T>> fallback, boolean cancellable) {
+        if (cancellable && preparingPriorityAction && actionCanceled) return null;
         if (!usesLlm()) {
             return fallback.get();
         }
@@ -127,14 +173,19 @@ abstract class LlmDecisionController extends PlayerControllerAi {
             throw new IllegalArgumentException("Impossible choice bounds for " + title);
         }
         // No decision exists when nothing can be selected or exactly one forced option exists.
-        if (max == 0 || offered.size() == 1 && min == 1 && max == 1) {
+        // An empty payment menu still needs a cancellation prompt during action preparation.
+        if (max == 0 && !(cancellable && preparingPriorityAction)
+                || offered.size() == 1 && min == 1 && max == 1) {
             List<T> forced = max == 0 ? new ArrayList<>() : new ArrayList<>(offered);
             if (valid.test(forced)) return forced;
         }
         List<String> labels = offered.stream().map(this::describe).toList();
         for (int attempt = 0; attempt < 3; attempt++) {
-            SubmitChoice answer = request(title, labels, min, max, repeat, false);
-            if (answer == null) break;
+            SubmitChoice answer = request(title, labels, min, max, repeat, false, cancellable);
+            if (answer == null) {
+                if (cancellable && preparingPriorityAction && actionCanceled) return null;
+                break;
+            }
             List<T> selected = new ArrayList<>();
             answer.choices().forEach(index -> selected.add(offered.get(index)));
             if (valid.test(selected)) return selected;
@@ -150,6 +201,21 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         return select(title, list, min, max, false, chosen -> true, fallback);
     }
 
+    final <T> List<T> selectCancelable(String title, Iterable<T> options, int min, int max, Supplier<List<T>> fallback) {
+        List<T> list = new ArrayList<>();
+        options.forEach(list::add);
+        return selectCancelable(title, list, min, max, false, chosen -> true, fallback);
+    }
+
+    final <T> T oneCancelable(String title, Iterable<T> options, boolean optional, Supplier<T> fallback) {
+        if (!options.iterator().hasNext() && !(optional && preparingPriorityAction && usesLlm())) return null;
+        List<T> selected = selectCancelable(title, options, optional ? 0 : 1, 1, () -> {
+            T result = fallback.get();
+            return result == null ? List.of() : List.of(result);
+        });
+        return selected == null || selected.isEmpty() ? null : selected.get(0);
+    }
+
     final <T> T one(String title, Iterable<T> options, boolean optional, Supplier<T> fallback) {
         if (!options.iterator().hasNext()) return null;
         List<T> selected = select(title, options, optional ? 0 : 1, 1, () -> {
@@ -163,7 +229,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         if (!usesLlm()) return fallback.get();
         if (min == max) return min;
         if (min > max) throw new IllegalArgumentException("Impossible number bounds: " + title);
-        SubmitChoice answer = request(title, List.of(), min, max, false, true);
+        SubmitChoice answer = request(title, List.of(), min, max, false, true, false);
         if (answer != null) return answer.value();
         Logger.warn("Using local numeric fallback for {}: {}", player, title);
         return locally(fallback);
@@ -203,12 +269,12 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     @Override
     public SpellAbility getAbilityToPlay(Card card, List<SpellAbility> abilities, ITriggerEvent event) {
-        return one("Choose an ability/casting cost", abilities, false, () -> super.getAbilityToPlay(card, abilities, event));
+        return oneCancelable("Choose an ability/casting cost", abilities, false, () -> super.getAbilityToPlay(card, abilities, event));
     }
 
     @Override
     public List<AbilitySub> chooseModeForAbility(SpellAbility sa, List<AbilitySub> possible, int min, int max, boolean repeat) {
-        return select(context(sa, "Choose modes" + (sa.hasParam("Pawprint") ? "; total pawprint budget=" + max : "")), possible, min, max, repeat,
+        return selectCancelable(context(sa, "Choose modes" + (sa.hasParam("Pawprint") ? "; total pawprint budget=" + max : "")), possible, min, max, repeat,
                 selected -> !sa.hasParam("Pawprint") || selected.stream().mapToInt(mode ->
                         forge.game.ability.AbilityUtils.calculateAmount(mode.getHostCard(), mode.getParam("Pawprint"), mode)).sum() <= max,
                 () -> super.chooseModeForAbility(sa, possible, min, max, repeat));
@@ -377,7 +443,12 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     @Override
     public Integer announceRequirements(SpellAbility sa, int min, int max, String title) {
-        return number(context(sa, "Announce " + title), min, max, () -> super.announceRequirements(sa, min, max, title));
+        if (!usesLlm()) return super.announceRequirements(sa, min, max, title);
+        if (min == max) return min;
+        if (min > max) throw new IllegalArgumentException("Impossible announcement bounds: " + title);
+        SubmitChoice answer = request(context(sa, "Announce " + title), List.of(), min, max, false, true, true);
+        if (actionCanceled && preparingPriorityAction) return null;
+        return answer != null ? answer.value() : locally(() -> super.announceRequirements(sa, min, max, title));
     }
 
     @Override
@@ -423,7 +494,8 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     @Override
     public boolean confirmPayment(CostPart cost, String title, SpellAbility sa) {
-        return yes(context(sa, title + " Cost: " + cost), () -> super.confirmPayment(cost, title, sa));
+        return "Yes".equals(oneCancelable(context(sa, title + " Cost: " + cost), List.of("Yes", "No"), false,
+                () -> super.confirmPayment(cost, title, sa) ? "Yes" : "No"));
     }
 
     @Override
@@ -448,7 +520,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     @Override
     public List<OptionalCostValue> chooseOptionalCosts(SpellAbility sa, List<OptionalCostValue> options) {
-        return select(context(sa, "Choose optional additional costs"), options, 0, options.size(), () -> super.chooseOptionalCosts(sa, options));
+        return selectCancelable(context(sa, "Choose optional additional costs"), options, 0, options.size(), () -> super.chooseOptionalCosts(sa, options));
     }
 
     @Override

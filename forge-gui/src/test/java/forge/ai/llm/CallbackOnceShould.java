@@ -20,9 +20,13 @@ public class CallbackOnceShould {
                 throw new IllegalArgumentException("Must be nonnegative");
             }
         }, value -> invocations.incrementAndGet());
+        Assert.assertTrue(callback.isPending(request));
+        Assert.assertFalse(callback.isPending("other"));
         Assert.expectThrows(IllegalArgumentException.class, () -> callback.call(request, -1));
+        Assert.assertTrue(callback.isPending(request));
         Assert.assertEquals(invocations.get(), 0);
         Assert.assertEquals(callback.call(request, 42), Integer.valueOf(1));
+        Assert.assertFalse(callback.isPending(request));
         Assert.expectThrows(IllegalStateException.class, () -> callback.call(request, 42));
     }
 
@@ -47,6 +51,7 @@ public class CallbackOnceShould {
             throw new AssertionError("A cancelled callback must not run");
         });
         Assert.assertTrue(callback.cancel(request));
+        Assert.assertFalse(callback.isPending(request));
         Assert.assertFalse(callback.cancel(request));
         Assert.expectThrows(IllegalStateException.class, () -> callback.call(request, null));
     }

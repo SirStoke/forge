@@ -69,7 +69,7 @@ final class LlmManaPayment {
                         && player.canPayLife(lifeToPay + 2, effect, sa)) {
                     options.add(new Action(null, null, true, ManaCostShard.BLACK, "Pay 2 life instead of black mana"));
                 }
-                Action action = controller.one(controller.context(sa, "Pay remaining mana " + cost
+                Action action = controller.oneCancelable(controller.context(sa, "Pay remaining mana " + cost
                         + ". Choose a source, floating mana, or life payment. Choose no options to cancel."), options, true, () -> null);
                 if (action == null) return false;
                 if (action.mana() != null) {
@@ -93,6 +93,7 @@ final class LlmManaPayment {
                     } else {
                         sa.getPayingManaAbilities().add(ability);
                     }
+                    if (controller.actionWasCanceled()) return false;
                 }
             }
             if (!cost.isPaid()) return false;

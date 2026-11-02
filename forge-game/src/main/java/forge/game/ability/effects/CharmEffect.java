@@ -281,6 +281,7 @@ public class CharmEffect extends SpellAbilityEffect {
         }
 
         List<AbilitySub> chosen = chooser.getController().chooseModeForAbility(sa, choices, min, num, canRepeat);
+        if (chosen == null) return false; // Cancel casting; an empty list can still be a legal choice.
         chainAbilities(sa, chosen);
 
         if (chosen != null && !chosen.isEmpty()) {

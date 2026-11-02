@@ -1,5 +1,7 @@
 package forge.ai.llm;
 
+import forge.ai.llm.tools.CancelAction;
+import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
 import forge.ai.llm.tools.ObserveStack;
@@ -22,6 +24,7 @@ import org.apache.catalina.startup.Tomcat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** A localhost MCP endpoint for this agent's game tools. */
 final class ForgeMcpServer implements AutoCloseable {
@@ -30,8 +33,9 @@ final class ForgeMcpServer implements AutoCloseable {
     private final Path directory;
     private final CallbackOnce<Boolean, String> mulliganDecision = new CallbackOnce<>();
     private final CallbackOnce<PriorityDecision, String> priorityDecision = new CallbackOnce<>();
-    private final CallbackOnce<SubmitChoice, String> choiceDecision = new CallbackOnce<>();
+    private final CallbackOnce<ChoiceDecision, String> choiceDecision = new CallbackOnce<>();
     private final GameObserver game;
+    private final AtomicReference<PriorityActionsSnapshot> priorityActions = new AtomicReference<>();
 
     private ForgeMcpServer(Player viewer) throws IOException {
         directory = Files.createTempDirectory("forge-mcp-");
@@ -42,13 +46,17 @@ final class ForgeMcpServer implements AutoCloseable {
 
         final ToolRepository tools = new ToolRepository();
         tools.register(SubmitChoice::schema, SubmitChoice::compile,
-                request -> choiceDecision.call(request.requestId(), request));
+                request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Choose(request)));
+        tools.register(CancelAction::schema, CancelAction::compile,
+                request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Cancel()));
         tools.register(Mulligan::schema, Mulligan::compile,
                 mulligan -> mulliganDecision.call(mulligan.requestId(), mulligan.keep()));
         tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
         tools.register(ObserveStack::schema, ObserveStack::compile, request -> game.read().stack());
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
         tools.register(ObserveBattlefield::schema, ObserveBattlefield::compile, request -> game.read().battlefield());
+        tools.register(GetAvailableActions::schema, GetAvailableActions::compile,
+                request -> availableActions(request.requestId()));
         tools.register(PlayAction::schema, PlayAction::compile, request -> priorityDecision.call(
                 request.requestId(), new PriorityDecision.PlayAction(request.cardId(), request.abilityId())));
         tools.register(PassPriority::schema, PassPriority::compile,
@@ -97,16 +105,33 @@ final class ForgeMcpServer implements AutoCloseable {
         return priorityDecision;
     }
 
+    void setPriorityActions(PriorityActionsSnapshot snapshot) {
+        priorityActions.set(snapshot);
+    }
+
+    void clearPriorityActions(String requestId) {
+        priorityActions.updateAndGet(snapshot -> snapshot != null && snapshot.requestId().equals(requestId) ? null : snapshot);
+    }
+
+    private PriorityActionsSnapshot availableActions(String requestId) {
+        final var snapshot = priorityActions.get();
+        if (snapshot == null || !snapshot.requestId().equals(requestId) || !priorityDecision.isPending(requestId)) {
+            throw new IllegalStateException("No pending priority actions for request: " + requestId);
+        }
+        return snapshot;
+    }
+
     void refreshGameState() {
         game.refresh();
     }
 
-    CallbackOnce<SubmitChoice, String> choiceDecision() {
+    CallbackOnce<ChoiceDecision, String> choiceDecision() {
         return choiceDecision;
     }
 
     @Override
     public void close() {
+        priorityActions.set(null);
         game.close();
         try {
             mcp.close();
