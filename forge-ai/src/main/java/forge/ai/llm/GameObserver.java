@@ -10,11 +10,14 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Publishes snapshots from game events; MCP readers never access the live game. */
 final class GameObserver implements AutoCloseable {
     private final Player viewer;
+    private final DeckSnapshot deck;
     private final AtomicReference<Snapshot> current = new AtomicReference<>();
     private volatile boolean closed;
 
     GameObserver(Player viewer) {
         this.viewer = viewer;
+        // Registered composition is fixed for this game's session; capture it on the game thread.
+        deck = viewer == null ? null : DeckSnapshot.capture(viewer);
         if (viewer != null) {
             refresh();
             viewer.getGame().subscribeToEvents(this);
@@ -24,7 +27,7 @@ final class GameObserver implements AutoCloseable {
     void refresh() {
         if (!closed && viewer != null) {
             current.set(new Snapshot(StackSnapshot.capture(viewer), CardsSnapshot.hand(viewer),
-                    CardsSnapshot.battlefield(viewer)));
+                    CardsSnapshot.battlefield(viewer), deck));
         }
     }
 
@@ -51,6 +54,6 @@ final class GameObserver implements AutoCloseable {
         current.set(null);
     }
 
-    record Snapshot(StackSnapshot stack, CardsSnapshot hand, CardsSnapshot battlefield) {
+    record Snapshot(StackSnapshot stack, CardsSnapshot hand, CardsSnapshot battlefield, DeckSnapshot deck) {
     }
 }

@@ -10,5 +10,9 @@ name, description, and full input schema into your context. Use your harness's M
 facilities as needed, resolve any deferred tools, and follow all pagination until the full list is available.
 Resolve all mtg-forge tools, not just those relevant to the first decision.
 
+You can call get_deck to read your registered deck list: card names and copy counts by section.
+Use get_card_details for the printed rules of those cards. The deck list describes your registered
+composition for this game and does not expose library order or remaining-library contents.
+
 After resolving the tools, briefly list their names and wait for Forge's first gameplay request.
 Decision-submission tools should only be called when Forge supplies a pending decision and its request ID.

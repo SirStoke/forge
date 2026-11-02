@@ -6,6 +6,7 @@ import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
+import forge.ai.llm.tools.ObserveDeck;
 import forge.ai.llm.tools.ObserveBattlefield;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.PassPriority;
@@ -54,6 +55,7 @@ final class ForgeMcpServer implements AutoCloseable {
         tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
         tools.register(ObserveStack::schema, ObserveStack::compile, request -> game.read().stack());
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
+        tools.register(ObserveDeck::schema, ObserveDeck::compile, request -> game.read().deck());
         tools.register(ObserveBattlefield::schema, ObserveBattlefield::compile, request -> game.read().battlefield());
         tools.register(GetAvailableActions::schema, GetAvailableActions::compile,
                 request -> availableActions(request.requestId()));

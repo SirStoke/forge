@@ -6,7 +6,8 @@ Phase: {{phase}}
 Call get_available_actions with requestId "{{requestId}}" to see actions and their costs.
 The list includes spells and land plays from permitted zones, activated abilities (including mana abilities), and special actions.
 Timing and play permissions are checked, but affordability is not: some listed actions may have costs you cannot pay.
-You may use get_hand, get_battlefield, get_stack, and get_card_details to inspect the game before deciding.
+You may use get_hand, get_battlefield, get_stack, get_deck, and get_card_details to inspect the game before deciding.
+get_deck shows your registered card names and copy counts by section; use it to understand your deck's strategy and available cards.
 Choose an action by calling play_action with requestId "{{requestId}}" and a cardId and abilityId pair returned by get_available_actions.
 Alternatively, call pass_priority with requestId "{{requestId}}" without fetching the list.
 

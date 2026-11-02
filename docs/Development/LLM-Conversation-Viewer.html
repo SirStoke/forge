@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="description" content="Read Forge LLM conversation logs as a searchable timeline of decisions, agent messages, tool calls and results. Works entirely offline.">
+<title>Forge · Conversation Viewer</title>
+<style>
+:root{--paper:#f6f7f2;--panel:#fff;--ink:#20332e;--muted:#687871;--line:#dde4dd;--teal:#245c50;--dark:#173f36;--mint:#e7f0e9;--gold:#af7725;--gold-bg:#faf0dc;--red:#ad423c;--red-bg:#fff0ed;--blue:#48668e;--blue-bg:#edf2fa;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--shadow:0 8px 32px #183e3408}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{cursor:default;opacity:.45}button,a,input,select,textarea{ -webkit-tap-highlight-color:transparent}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #c99342;outline-offset:3px}button{color:inherit}a{color:var(--teal);text-underline-offset:3px}[hidden]{display:none!important}.topbar{height:78px;padding:0 4vw;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;background:#f6f7f2f5}.brand{display:flex;align-items:center;gap:13px}.brand-mark{width:35px;height:35px;border-radius:9px;background:var(--dark);color:white;display:grid;place-items:center;font:700 19px var(--mono)}.brand-name{font-weight:750;font-size:15px;letter-spacing:-.3px}.brand-name small{font-weight:400;color:var(--muted);margin-left:14px;padding-left:14px;border-left:1px solid var(--line)}.header-actions,.actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.local{color:var(--muted);font:11px var(--mono);display:flex;align-items:center;gap:7px;margin-right:8px}.local:before{content:"";width:6px;height:6px;border-radius:50%;background:#6b9470}.button{border:1px solid var(--line);border-radius:7px;background:white;padding:9px 14px;font-size:12px;font-weight:600;white-space:nowrap}.button:hover{background:#eef3ed}.button.primary{background:var(--dark);border-color:var(--dark);color:white}.button.primary:hover{background:#285b4e}.button.quiet{background:transparent}.button.small{padding:5px 10px;font-size:11px}.eyebrow{font:11px var(--mono);letter-spacing:1.8px;text-transform:uppercase;color:var(--muted)}h1,h2,h3,p{margin-top:0}h1{font-size:clamp(33px,4vw,51px);line-height:1.13;letter-spacing:-2px;font-weight:650;margin-bottom:21px}h1 em{font-style:normal;color:var(--teal)}.importer{max-width:1160px;margin:55px auto 40px;padding:0 28px}.import-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:65px;align-items:start}.intro{padding-top:26px}.intro .eyebrow{display:block;margin-bottom:23px}.intro>p{color:var(--muted);font-size:16px;line-height:1.8;max-width:390px}.feature-list{list-style:none;padding:0;margin:30px 0;display:grid;gap:15px;color:#435d52;font-size:13px}.feature-list li:before{content:"↳";font:14px var(--mono);margin-right:13px;color:#839b85}.input-card{border:1px solid var(--line);border-radius:13px;padding:24px;background:white;box-shadow:var(--shadow)}.input-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}.input-heading h2{font-size:15px;margin:0;font-weight:650}.input-heading span{font:10px var(--mono);color:var(--muted)}textarea{width:100%;min-height:284px;resize:vertical;border:1px solid var(--line);border-radius:7px;background:#f9faf7;padding:15px;font:11px/1.8 var(--mono);color:#365449;tab-size:2}textarea::placeholder{color:#8a968e}.input-note{font-size:11px;color:var(--muted);margin:13px 0 19px;line-height:1.7}.drop-hint{border-top:1px solid var(--line);margin-top:20px;padding-top:17px;font-size:11px;color:var(--muted)}.importer.editing{margin:25px auto}.importer.editing .intro{display:none}.importer.editing .import-grid{grid-template-columns:1fr}.importer.editing textarea{min-height:190px}.importer.editing .input-card{max-width:900px;margin:auto}.notice{margin-top:15px;padding:11px 14px;border-radius:7px;background:var(--gold-bg);color:#825b22;font-size:12px}.notice.error{background:var(--red-bg);color:var(--red)}.drop-overlay{position:fixed;inset:12px;z-index:50;border:2px dashed var(--teal);border-radius:14px;background:#eef5ebf5;display:grid;place-items:center;font-size:24px;font-weight:650;pointer-events:none}.workspace{max-width:1700px;margin:auto;padding:27px 4vw 60px}.summary{display:grid;grid-template-columns:minmax(220px,1fr) repeat(3,minmax(110px,180px));align-items:stretch;gap:0;margin-bottom:26px;border:1px solid var(--line);border-radius:10px;background:white;overflow:hidden}.summary-source{padding:18px 22px;min-width:0}.summary-title{font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;margin:3px 0}.summary-source .eyebrow{font-size:9px}.summary-source small{color:var(--muted);font:10px var(--mono)}.stat{padding:15px 22px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center}.stat b{font-size:26px;line-height:1.2;font-weight:650;letter-spacing:-.8px}.stat span{color:var(--muted);font-size:11px;margin-top:5px}.stat .red{color:var(--red)}.workspace-grid{display:grid;grid-template-columns:235px minmax(0,1fr);gap:29px}.sidebar{min-width:0;position:sticky;top:22px;align-self:start}.field-label{display:block;font:10px var(--mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);margin-bottom:9px}select{width:100%;border:1px solid var(--line);border-radius:7px;padding:10px 30px 10px 10px;background:white;color:var(--ink);font-size:12px;min-width:0}.nav-heading{display:flex;justify-content:space-between;align-items:center;margin:25px 0 10px}.nav-heading .field-label{margin:0}.text-button{border:0;background:none;padding:3px;color:var(--teal);font-size:11px}.nav-list{max-height:calc(100vh - 250px);overflow:auto;padding:1px 5px 1px 0;scrollbar-width:thin}.nav-item{display:flex;align-items:start;gap:9px;width:100%;padding:11px 10px;border:1px solid transparent;border-radius:7px;background:transparent;text-align:left;margin-bottom:3px}.nav-item:hover{background:#eaf0e8}.nav-item.active{background:var(--mint);border-color:#cddfd2}.nav-index{font:10px var(--mono);color:#7b9487;padding-top:3px;min-width:20px}.nav-title{display:block;font-size:12px;font-weight:550;line-height:1.5;overflow-wrap:anywhere}.nav-meta{display:block;font:9px var(--mono);color:var(--muted);margin-top:4px}.nav-error{color:var(--red)}.decision-jump{display:none}.sidebar-note{font-size:10px;line-height:1.7;color:var(--muted);margin-top:16px}.content{min-width:0}.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:16px}.search-wrap{position:relative;flex:1;min-width:150px}.search-wrap:before{content:"⌕";position:absolute;left:12px;top:6px;font-size:22px;color:var(--muted)}.search{width:100%;border:1px solid var(--line);border-radius:7px;background:white;padding:10px 12px 10px 37px;font-size:12px}.kind-filter{width:auto;min-width:128px;max-width:190px}.toggle{border:1px solid var(--line);border-radius:7px;background:white;padding:10px;font-size:11px;white-space:nowrap}.toggle[aria-pressed=true]{background:var(--mint);border-color:#bad1c0}.view-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:21px;color:var(--muted);font-size:11px}.view-meta button{font-size:11px}.decision{margin:0 0 26px}.decision-heading{display:flex;align-items:center;gap:11px;margin:0 0 12px;scroll-margin-top:20px}.decision-number{font:10px var(--mono);background:#e5ebe1;border-radius:5px;padding:4px 7px;color:#607b67}.decision-heading h2{font-size:13px;font-weight:650;margin:0;line-height:1.4;overflow-wrap:anywhere}.decision-heading .decision-time{font:10px var(--mono);color:var(--muted);margin-left:auto;white-space:nowrap}.entry{position:relative;margin:8px 0;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:white;box-shadow:0 2px 6px #183e3403}.entry:hover{border-color:#b9cabe;box-shadow:0 4px 15px #183e3408}.entry-open{display:block;width:100%;text-align:left;border:0;background:none;padding:15px 17px}.entry-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;line-height:1.4}.role{font:9px var(--mono);letter-spacing:.6px;text-transform:uppercase;padding:4px 7px;border-radius:4px;background:var(--mint);color:var(--teal);white-space:nowrap}.agent .role{background:var(--blue-bg);color:var(--blue)}.thought .role{background:#f0edf7;color:#7b6995}.tool .role{background:var(--gold-bg);color:var(--gold)}.entry.error{border-color:#e8c6bf;background:#fffaf8}.entry.error .role{background:#fce6e2;color:var(--red)}.entry-name{font-size:12px;font-weight:600;overflow-wrap:anywhere}.tool .entry-name{font:600 12px var(--mono)}.entry-time{font:10px var(--mono);color:var(--muted);margin-left:auto}.status{font:9px var(--mono);color:#607c68;white-space:nowrap}.status.failed{color:var(--red)}.status.pending{color:#958269}.entry-preview{margin:10px 0 0;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;color:#586c62;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.entry-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font:9px var(--mono);color:#8b968e;margin-top:10px}.entry-foot .inspect{margin-left:auto;color:#6f8877}.chip{display:inline-block;background:#eff3ec;border-radius:4px;padding:2px 6px;font:9px var(--mono);color:#69806f}.inferred{color:#968250}.empty{padding:55px 25px;text-align:center;background:white;border:1px dashed var(--line);border-radius:9px;color:var(--muted)}.empty strong{display:block;font-size:15px;color:var(--ink);margin-bottom:6px}.load-more{width:100%;margin:0 0 25px}.footer-note{color:var(--muted);font-size:10px;line-height:1.8;border-top:1px solid var(--line);margin-top:25px;padding-top:15px}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--dark);color:white;border-radius:8px;padding:11px 18px;box-shadow:0 7px 25px #183e3426;z-index:80;font-size:12px;max-width:90vw}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+dialog{position:fixed;inset:0 0 0 auto;margin:0;width:min(600px,100vw);height:100dvh;max-height:100dvh;max-width:100vw;border:0;border-left:1px solid var(--line);padding:0;color:var(--ink);background:#fbfcf8;box-shadow:-15px 0 70px #183e3420}dialog::backdrop{background:#102b2633}.detail-top{padding:24px 25px 0;background:white;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}.detail-heading{display:flex;gap:12px;align-items:start}.detail-heading h2{font-size:20px;letter-spacing:-.6px;margin:9px 0 12px;overflow-wrap:anywhere}.close{border:1px solid var(--line);background:white;border-radius:6px;width:30px;height:30px;display:grid;place-items:center;margin-left:auto;flex-shrink:0;font-size:18px}.detail-context{display:flex;gap:7px;flex-wrap:wrap;color:var(--muted);font:10px/1.9 var(--mono);margin-bottom:17px}.detail-context span{overflow-wrap:anywhere}.tabs{display:flex;gap:22px;align-items:center}.tab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 0;font-size:12px;color:var(--muted)}.tab[aria-selected=true]{border-color:var(--teal);color:var(--teal);font-weight:600}.tabs .button{margin-left:auto;margin-bottom:5px}.detail-body{padding:24px 25px 50px}.detail-body h3{font:10px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:22px 0 12px}.detail-body h3:first-child{margin-top:0}pre{font:11px/1.85 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;margin:0;background:#f2f5ee;border:1px solid var(--line);border-radius:7px;padding:15px}.prose{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.95}.detail-identity{font:10px/1.9 var(--mono);color:var(--muted);overflow-wrap:anywhere;margin-bottom:22px;background:#f1f4ed;padding:12px;border-radius:6px}.data-table-wrap{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:7px;background:white;margin:10px 0}table{border-collapse:collapse;width:100%;font-size:11px}td,th{text-align:left;padding:9px 11px;border-bottom:1px solid #e8ede5;vertical-align:top;max-width:350px;min-width:70px;overflow-wrap:anywhere}th{background:#f1f5ee;color:#617667;font-size:10px;font-weight:600}tr:last-child td{border-bottom:0}td.option-index{font:11px var(--mono);color:var(--teal);min-width:40px;width:40px}.data-object{margin:0}dt{font:10px var(--mono);color:var(--muted);margin-top:13px}dd{margin:3px 0 0;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.data-array>summary{font-size:12px;color:var(--teal);padding:10px 0;cursor:pointer}.data-array{margin:10px 0;border-top:1px solid var(--line)}.array-item{padding:0 11px 13px;border-left:2px solid var(--line);margin:8px 0}.small-note{font-size:10px;color:var(--muted)}.callout{padding:12px 14px;background:var(--gold-bg);font-size:11px;border-radius:6px;color:#8d682d;margin:15px 0}.error-detail{color:var(--red);background:var(--red-bg);border-radius:7px;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.8 var(--mono)}
+@media(min-width:1700px){.workspace{padding-left:50px;padding-right:50px}}@media(max-width:900px){.import-grid{gap:30px;grid-template-columns:1fr 1.2fr}.workspace-grid{grid-template-columns:190px minmax(0,1fr);gap:18px}.stat{padding:16px}.summary{grid-template-columns:minmax(150px,1fr) repeat(3,100px)}.header-actions .local{display:none}.brand-name small{font-size:12px;margin-left:8px;padding-left:8px}}@media(max-width:650px){.topbar{height:auto;min-height:68px;padding:14px 18px;align-items:start}.brand{gap:9px}.brand-mark{width:30px;height:30px}.brand-name{font-size:13px}.brand-name small{display:block;margin:0;padding:0;border:0;font-size:10px}.header-actions{gap:6px;justify-content:end}.header-actions .button{padding:7px 9px;font-size:10px}.importer{margin-top:28px;padding:0 18px}.import-grid{grid-template-columns:1fr;gap:16px}.intro{padding-top:0}.intro .eyebrow{margin-bottom:15px}h1{font-size:37px}.intro>p{font-size:14px}.feature-list{display:none}.input-card{padding:17px}textarea{min-height:235px}.workspace{padding:20px 18px 40px}.summary{grid-template-columns:repeat(3,1fr);margin-bottom:20px}.summary-source{grid-column:1/-1;border-bottom:1px solid var(--line);padding:13px 15px}.stat{padding:12px 15px}.stat:nth-child(2){border-left:0}.stat b{font-size:22px}.workspace-grid{grid-template-columns:1fr;gap:17px}.sidebar{position:static;display:flex;align-items:center;gap:11px;flex-wrap:wrap}.sidebar>label{margin:0}.sidebar select{flex:1;min-width:180px;width:auto}.nav-heading,.nav-list,.sidebar-note{display:none}.decision-jump{display:block;width:100%}.decision-jump select{width:100%}.toolbar{gap:7px}.search-wrap{flex-basis:100%}.kind-filter{flex:1}.toggle{padding:9px}.entry-open{padding:13px}.entry-time{font-size:9px}.decision-heading h2{font-size:12px}.decision-heading .decision-time{display:none}.detail-top{padding:20px 18px 0}.detail-body{padding:20px 18px 40px}.view-meta{font-size:10px}.footer-note{font-size:10px}}
+@media print{.topbar,.importer,.sidebar,.toolbar,.view-meta,.footer-note,.header-actions,dialog,.toast{display:none!important}.workspace{padding:0}.workspace-grid{display:block}.summary,.entry{box-shadow:none;break-inside:avoid}.entry-preview{-webkit-line-clamp:unset;display:block}.entry-open{padding:12px}.entry-foot .inspect{display:none}}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="brand-mark" aria-hidden="true">F</div><div class="brand-name">FORGE <small>Conversation viewer</small></div></div><div class="header-actions"><span class="local">LOCAL · OFFLINE</span><button class="button quiet" id="edit-log" hidden>Edit log</button><button class="button" id="export" hidden>Export JSON</button><button class="button quiet" id="clear" hidden>Clear</button></div></header>
+<main>
+<section class="importer" id="importer" aria-label="Import a conversation">
+<div class="import-grid"><div class="intro"><span class="eyebrow">From raw logs to readable decisions</span><h1>Follow the game.<br><em>Understand the agent.</em></h1><p>Turn a Forge conversation log into a clear timeline of prompts, responses and tool calls.</p><ul class="feature-list"><li>Jump between sessions and decisions</li><li>Pair tool calls with their results</li><li>Inspect choices, payments and errors</li></ul></div>
+<div class="input-card"><div class="input-heading"><h2>Paste your conversation log</h2><span>.log / .txt</span></div><label for="log-input" class="sr-only">Conversation log text</label><textarea id="log-input" spellcheck="false" placeholder="2026-11-02 10:04:21.000 [ACP session-id] USER:&#10;You are playing as One.&#10;Request ID: …&#10;Decision: Pay remaining mana {R}&#10;&#10;2026-11-02 10:04:23.000 [MCP invocation-id] TOOL CALL submit_choice:&#10;{requestId=…, choices=[0]}"></textarea><p class="input-note">Paste from <code>logs/llm-conversation.log</code> or the console. Everything stays in this browser tab. No upload, account or connection needed.</p><div class="actions"><button class="button primary" id="parse">Open conversation <span aria-hidden="true">↗</span></button><button class="button" id="open-file">Open file</button><button class="text-button" id="demo">Try an example</button><button class="text-button" id="cancel-edit" hidden>Cancel edit</button></div><div class="notice" id="import-status" role="status" hidden></div><div class="drop-hint">You can also drop a log file anywhere on this page.</div></div></div>
+</section>
+<section class="workspace" id="workspace" aria-label="Conversation timeline" hidden>
+<div class="summary"><div class="summary-source"><span class="eyebrow">Conversation loaded</span><div class="summary-title" id="source-name"></div><small id="source-meta"></small></div><div class="stat"><b id="decision-count">0</b><span>decisions</span></div><div class="stat"><b id="tool-count">0</b><span>tool calls</span></div><div class="stat"><b class="red" id="error-count">0</b><span>tool errors</span></div></div>
+<div class="workspace-grid"><aside class="sidebar" aria-label="Conversation navigation"><label class="field-label" for="session-filter">Session</label><select id="session-filter"></select><div class="nav-heading"><span class="field-label">Decisions</span><button class="text-button" id="all-decisions">Show all</button></div><div class="nav-list" id="decision-nav"></div><div class="decision-jump"><label for="decision-jump" class="sr-only">Jump to a decision</label><select id="decision-jump"></select></div><p class="sidebar-note">Tool calls are linked by request ID when possible. Other session links are marked as inferred.</p></aside>
+<div class="content"><div class="toolbar"><label class="search-wrap"><span class="sr-only">Search conversation</span><input class="search" id="search" type="search" placeholder="Search a card, tool, request ID or message…" autocomplete="off"></label><label class="sr-only" for="kind-filter">Entry type</label><select class="kind-filter" id="kind-filter"><option value="all">All entries</option><option value="prompt">Prompts</option><option value="agent">Agent messages</option><option value="tool">Tool calls</option><option value="error">Errors only</option></select><button class="toggle" id="thoughts" aria-pressed="false">Show thoughts</button></div><div class="view-meta"><span id="view-count" role="status"></span><div><button class="text-button" id="reset-filters">Reset filters</button><button class="text-button" id="latest">Latest decision ↓</button></div></div><div id="parse-notice" class="notice" hidden></div><div id="timeline"></div><button class="button load-more" id="load-more" hidden>Show more entries</button><p class="footer-note">Open any entry to inspect its complete contents and original log text. Entries are grouped by decision; timestamps come from the source log. A missing tool result means it was not present in the pasted text. Logs are held in memory and cleared when this page is reloaded.</p></div></div>
+</section>
+</main>
+<input type="file" id="file-input" accept=".log,.txt,text/plain" hidden>
+<div class="drop-overlay" id="drop-overlay" hidden>Drop a conversation log</div>
+<dialog id="inspector" aria-labelledby="detail-title"><div class="detail-top"><div class="detail-heading"><div><span class="eyebrow" id="detail-kind"></span><h2 id="detail-title"></h2></div><button class="close" id="close-detail" aria-label="Close entry details">×</button></div><div class="detail-context" id="detail-context"></div><div class="tabs" role="tablist" aria-label="Entry view"><button class="tab" id="tab-formatted" role="tab" aria-selected="true" aria-controls="detail-body">Formatted</button><button class="tab" id="tab-raw" role="tab" aria-selected="false" aria-controls="detail-body">Raw source</button><button class="button small" id="copy-entry">Copy source</button></div></div><div class="detail-body" id="detail-body" role="tabpanel" aria-labelledby="tab-formatted"></div></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+<noscript><p class="notice">This viewer needs JavaScript to parse and display your logs. It uses no external scripts.</p></noscript>
+<script>
+'use strict';
+// No log content is executed or inserted as HTML. Escape at the rendering boundary.
+const $ = id => document.getElementById(id);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const countLabel = (count, noun) => count.toLocaleString()+' '+noun+(count===1?'':'s');
+const short = (text, max=110) => String(text ?? '').length > max ? String(text).slice(0,max-1)+'…' : String(text ?? '');
+const state = { model:null, source:'Pasted conversation', session:'all', group:null, query:'', kind:'all', thoughts:false, limit:120, selected:null, raw:false, navLimit:200 };
+
+function timestamp(text) {
+ const match = text.match(/\b(\d{4}-\d\d-\d\d[ T])?(\d\d:\d\d:\d\d(?:\.\d{1,3})?)/);
+ if (!match) return {label:'', ms:null, timeOnly:false};
+ const label=match[0];
+ if(match[1]) return {label,ms:Date.parse(label.replace(' ','T')),timeOnly:false};
+ const parts=match[2].split(':');
+ return {label,ms:(Number(parts[0])*3600+Number(parts[1])*60+Number(parts[2]))*1000,timeOnly:true};
+}
+function header(line) {
+ const match=line.match(/^(.*?)\[(ACP|MCP) ([^\]]+)\] (AGENT THOUGHT|USER|AGENT|TOOL CALL|TOOL RESULT|TOOL ERROR)(?: ([^:]+))?:[ \t]*(.*)$/);
+ if(!match) return null;
+ const prefix=match[1].trim();
+ // Accept dedicated file logs, console prefixes and a marker-only pasted excerpt.
+ if(prefix && !/^(?:\d{4}-\d\d-\d\d[ T])?\d\d:\d\d:\d\d/.test(prefix)) return null;
+ const protocol=match[2], role=match[4];
+ if(protocol==='ACP' && !['USER','AGENT','AGENT THOUGHT'].includes(role)) return null;
+ if(protocol==='MCP' && !role.startsWith('TOOL ')) return null;
+ return {protocol,id:match[3],role,tool:(match[5]||'').trim(),inline:match[6],...timestamp(prefix)};
+}
+function requestId(text) {
+ return text.match(/^Request ID:\s*(\S+)/m)?.[1]
+  || text.match(/(?:^|[\s{,])"?requestId"?\s*[:=]\s*"?([^\s",}\]]+)/)?.[1] || '';
+}
+function field(text,name) {return text.match(new RegExp('^'+name+':\\s*(.+)$','m'))?.[1]?.trim() || '';}
+function promptTitle(text) {
+ if(field(text,'Decision')) return field(text,'Decision').split('\n')[0];
+ if(/have priority\./i.test(text)) return 'Priority'+(field(text,'Phase') ? ' · '+field(text,'Phase') : '');
+ if(/mulligan|opening hand/i.test(text)) return 'Opening hand · mulligan';
+ if(/discover(?:ing)?[^\n]*\btools?\b|resolving the tools/i.test(text)) return 'Session instructions';
+ return short(text.split('\n').find(line=>line.trim()) || 'Prompt',80);
+}
+function playerName(text) {
+ return text.match(/You are playing(?: Magic: The Gathering)? as ([^\n]+?)(?: and have priority)?\.(?:\s|$)/)?.[1] || '';
+}
+function parseLog(text) {
+ const lines=text.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').split('\n');
+ const records=[]; let current=null, preamble=[];
+ function flush(end) {
+  if(!current) return;
+  current.body=current.bodyLines.join('\n').replace(/\n+$/,'');
+  current.endLine=end; current.raw=lines.slice(current.line-1,end).join('\n').trimEnd();
+  delete current.bodyLines; records.push(current);
+ }
+ lines.forEach((line,index)=>{
+  const found=header(line);
+  if(found) {flush(index);current={...found,line:index+1,bodyLines:found.inline?[found.inline]:[]};}
+  else if(current) current.bodyLines.push(line);
+  else preamble.push(line);
+ });
+ flush(lines.length);
+ const sessions=new Map(),groups=[],entries=[],calls=new Map(),requests=new Map(),lastGroup=new Map();
+ let lastSession='', toolOnly=null;
+ function ensureSession(id) {
+  if(!sessions.has(id)) sessions.set(id,{id,player:'',groups:[]});
+  return sessions.get(id);
+ }
+ function newGroup(session,title,prompt=null) {
+  const group={id:'g'+groups.length,session,title,prompt,index:groups.length+1,entries:[],requestId:prompt?requestId(prompt.body):''};
+  groups.push(group);ensureSession(session).groups.push(group);return group;
+ }
+ function unassigned() { if(!toolOnly) toolOnly=newGroup('unassigned','Unassigned tool activity'); return toolOnly; }
+ function addEntry(group,entry) {
+  entry.key='e'+entries.length;entry.group=group.id;entry.session=group.session;
+  group.entries.push(entry);entries.push(entry);return entry;
+ }
+ function inferGroup(record) {
+  const rid=requestId(record.body);
+  if(rid && requests.has(rid)) {
+   const referenced=requests.get(rid);
+   // A stale request ID still identifies a session, but belongs in its current
+   // decision context (e.g. a rejected cancel using the earlier priority ID).
+   return {group:lastGroup.get(referenced.session)||referenced,association:'request ID'};
+  }
+  if(lastSession && lastGroup.has(lastSession)) return {group:lastGroup.get(lastSession),association:'inferred from nearby ACP entry'};
+  return {group:unassigned(),association:'unassigned'};
+ }
+ for(const record of records) {
+  if(record.protocol==='ACP') {
+   lastSession=record.id;const session=ensureSession(record.id);
+   if(!session.player) session.player=playerName(record.body);
+   let group=lastGroup.get(record.id);
+   if(record.role==='USER') {
+    group=newGroup(record.id,promptTitle(record.body),record);lastGroup.set(record.id,group);
+    if(group.requestId) requests.set(group.requestId,group);
+   } else if(!group) {group=newGroup(record.id,'Agent messages');lastGroup.set(record.id,group);}
+   addEntry(group,{kind:record.role==='USER'?'prompt':record.role==='AGENT'?'agent':'thought',record,title:record.role==='USER'?promptTitle(record.body):record.role==='AGENT'?'Agent response':'Agent thought',association:'ACP session ID'});
+  } else if(record.role==='TOOL CALL') {
+   const {group,association}=inferGroup(record);
+   const entry=addEntry(group,{kind:'tool',call:record,result:null,tool:record.tool,title:record.tool,association,referencedGroup:requests.get(requestId(record.body))?.id||null});
+   calls.set(record.id,entry);
+  } else {
+   const paired=calls.get(record.id);
+   if(paired && !paired.result) paired.result=record;
+   else {
+    const {group,association}=inferGroup(record);
+    addEntry(group,{kind:'tool',call:null,result:record,tool:record.tool,title:record.tool,association,referencedGroup:requests.get(requestId(record.body))?.id||null});
+   }
+  }
+ }
+ for(const entry of entries) {
+  entry.error=entry.result?.role==='TOOL ERROR';
+  entry.requestId=entry.kind==='tool'?requestId(entry.call?.body||'')||requestId(entry.result?.body||''):requestId(entry.record.body);
+  if(entry.kind==='tool' && entry.tool==='submit_choice' && entry.call) {
+   const args=parsePayload(entry.call.body)?.value;
+   const prompt=groups.find(g=>g.id===entry.referencedGroup)?.prompt;
+   if(args && Array.isArray(args.choices) && prompt) {
+    const labels=new Map(prompt.body.split('\n').map(line=>line.match(/^(\d+):\s?(.*)$/)).filter(Boolean).map(match=>[Number(match[1]),match[2]]));
+    entry.selections=args.choices.map(index=>({index,label:labels.get(index)??null}));
+   }
+  }
+  entry.search=[entry.title,entry.session,entry.requestId,entry.record?.body,entry.call?.body,entry.result?.body,entry.selections?.map(s=>s.label).join('\n'),entry.call?.id,entry.result?.id].filter(Boolean).join('\n').toLowerCase();
+ }
+ return {records,entries,groups,sessions,preamble:preamble.join('\n').trim(),lineCount:lines.length,bytes:new Blob([text]).size};
+}
+// Java Map.toString() is not JSON. Parse only its basic containers; never eval log text.
+function parsePayload(text) {
+ try {return {value:JSON.parse(text),format:'JSON'};} catch {}
+ const source=text.trim();
+ if(!source.startsWith('{') || !source.endsWith('}')) return null;
+ function split(value,separator) {
+  const parts=[];let start=0,depth=0,quote='',escape=false;
+  for(let i=0;i<value.length;i++) {
+   const ch=value[i];
+   if(quote) {if(escape)escape=false;else if(ch==='\\')escape=true;else if(ch===quote)quote='';continue;}
+   if(ch==='"') {quote=ch;continue;}
+   if(ch==='{'||ch==='['||ch==='(')depth++;
+   if(ch==='}'||ch===']'||ch===')')depth--;
+   if(ch===separator && depth===0) {parts.push(value.slice(start,i).trim());start=i+1;}
+  }
+  parts.push(value.slice(start).trim());return parts;
+ }
+ function value(input,depth=0) {
+  if(depth>30) return input;
+  if(input.startsWith('{')&&input.endsWith('}')) {
+   const out=Object.create(null);const inner=input.slice(1,-1).trim();
+   if(!inner)return out;
+   for(const part of split(inner,',')) {
+    const chunks=split(part,'=');if(chunks.length<2)throw Error('Not a Java map');
+    out[chunks.shift()]=value(chunks.join('='),depth+1);
+   }return out;
+  }
+  if(input.startsWith('[')&&input.endsWith(']')) return input.slice(1,-1).trim()?split(input.slice(1,-1),',').map(x=>value(x,depth+1)):[];
+  if(input==='null')return null;if(input==='true')return true;if(input==='false')return false;
+  if(/^-?\d+(?:\.\d+)?$/.test(input))return Number(input);
+  return input;
+ }
+ try {return {value:value(source),format:'Java map (best effort)'};}catch{return null;}
+}
+function elapsed(entry) {
+ if(!entry.call||!entry.result||entry.call.ms===null||entry.result.ms===null)return '';
+ let ms=entry.result.ms-entry.call.ms;
+ if(ms<0&&entry.call.timeOnly&&entry.result.timeOnly)ms+=86400000;
+ if(ms<0||!Number.isFinite(ms))return '';
+ return ms<1000?Math.round(ms)+' ms':ms<60000?(ms/1000).toFixed(1)+' s':(ms/60000).toFixed(1)+' min';
+}
+function timeLabel(entry) {const record=entry.record||entry.call||entry.result;return record?.label.split(' ').pop()||'No timestamp';}
+function toolSummary(entry) {
+ if(entry.error)return short(entry.result.body,240);
+ if(entry.selections) return entry.selections.length?'Selected: '+entry.selections.map(s=>s.label||'Option '+s.index).join(' · '):'No options selected';
+ const call=parsePayload(entry.call?.body||'');
+ if(call && call.value && typeof call.value==='object' && Object.keys(call.value).length) {
+  return Object.entries(call.value).map(([key,value])=>key+': '+short(typeof value==='string'?value:JSON.stringify(value),key==='requestId'?20:150)).join('  ·  ');
+ }
+ const result=parsePayload(entry.result?.body||'');
+ if(result && result.value && typeof result.value==='object') {
+  const v=result.value;
+  if(Array.isArray(v.actions))return v.actions.length+' available actions'+(v.affordabilityChecked===false?' · affordability not checked':'');
+  if(Array.isArray(v.sections))return v.name+' · '+v.sections.map(section=>section.name+': '+section.totalCards).join(' · ');
+  if(Array.isArray(v.cards))return v.cards.length+' cards'+(v.cards.length?' · '+short(v.cards.map(c=>c.name).join(', '),180):'');
+  if(Array.isArray(v.items))return v.items.length+' stack items';
+  return short(JSON.stringify(v),220);
+ }
+ return short(entry.result?.body || entry.call?.body || 'No result in this log',220);
+}
+function entryHtml(entry) {
+ const kind=entry.error?'error':entry.kind;
+ const role=entry.kind==='tool'?'Tool':entry.kind==='prompt'?'Forge prompt':entry.kind==='thought'?'Thought':'Agent';
+ const preview=entry.kind==='tool'?toolSummary(entry):short(entry.record.body,350);
+ const status=entry.kind==='tool'?'<span class="status '+(entry.error?'failed':entry.result?'':'pending')+'">'+(entry.error?'× Error':entry.result?'✓ Result':'○ No result')+'</span>':'';
+ const duration=elapsed(entry);
+ const phase=entry.kind==='prompt'?field(entry.record.body,'Phase'):'';
+ return '<article class="entry '+entry.kind+(kind==='error'?' error':'')+'"><button class="entry-open" data-entry="'+entry.key+'" aria-label="Inspect '+escapeHtml(entry.title)+'"><div class="entry-head"><span class="role">'+role+'</span><span class="entry-name">'+escapeHtml(short(entry.title,115))+'</span><span class="entry-time">'+escapeHtml(timeLabel(entry))+'</span>'+status+'</div><p class="entry-preview">'+escapeHtml(preview)+'</p><div class="entry-foot">'+(phase?'<span class="chip">'+escapeHtml(phase)+'</span>':'')+(entry.requestId?'<span title="Request ID: '+escapeHtml(entry.requestId)+'">request '+escapeHtml(short(entry.requestId,20))+'</span>':'')+(duration?'<span>'+escapeHtml(duration)+'</span>':'')+(entry.association.startsWith('inferred')?'<span class="inferred">inferred session</span>':'')+(!entry.call&&entry.kind==='tool'?'<span>call absent from log</span>':'')+'<span class="inspect">Inspect ↗</span></div></button></article>';
+}
+function selectedGroups() {return state.model.groups.filter(g=>state.session==='all'||g.session===state.session);}
+function matches(entry) {
+ return (state.session==='all'||entry.session===state.session)&&(!state.group||entry.group===state.group)
+  &&(state.thoughts||entry.kind!=='thought')&&(state.kind==='all'||state.kind==='error'&&entry.error||state.kind===entry.kind)
+  &&(!state.query||entry.search.includes(state.query));
+}
+function renderNav() {
+ const groups=selectedGroups().filter(g=>g.prompt);
+ const filtered=state.query?groups.filter(g=>g.entries.some(e=>e.search.includes(state.query))):groups;
+ $('decision-jump').innerHTML='<option value="">All decisions ('+groups.length+')</option>'+filtered.map(g=>'<option value="'+g.id+'">'+String(g.index).padStart(2,'0')+' · '+escapeHtml(short(g.title,90))+'</option>').join('');
+ $('decision-jump').value=state.group||'';
+ $('decision-nav').innerHTML=filtered.slice(0,state.navLimit).map(g=>'<button class="nav-item'+(state.group===g.id?' active':'')+'" data-group="'+g.id+'"><span class="nav-index">'+String(g.index).padStart(2,'0')+'</span><span><span class="nav-title">'+escapeHtml(short(g.title,74))+'</span><span class="nav-meta">'+escapeHtml(g.prompt.label.split(' ').pop()||'No timestamp')+' · '+countLabel(g.entries.filter(e=>e.kind==='tool').length,'tool')+(g.entries.some(e=>e.error)?' · <span class="nav-error">error</span>':'')+'</span></span></button>').join('')+(filtered.length>state.navLimit?'<button class="text-button" id="more-decisions">Show more decisions ('+(filtered.length-state.navLimit)+')</button>':'');
+}
+function renderTimeline() {
+ if(!state.model)return;
+ const entries=state.model.entries.filter(matches),visible=entries.slice(0,state.limit),byGroup=new Map();
+ for(const entry of visible) {if(!byGroup.has(entry.group))byGroup.set(entry.group,[]);byGroup.get(entry.group).push(entry);}
+ $('timeline').innerHTML=state.model.groups.filter(g=>byGroup.has(g.id)).map(group=>'<section class="decision" id="view-'+group.id+'"><div class="decision-heading"><span class="decision-number">'+String(group.index).padStart(2,'0')+'</span><h2>'+escapeHtml(group.title)+'</h2><span class="decision-time">'+escapeHtml(state.model.sessions.get(group.session)?.player||short(group.session,18))+'</span></div>'+byGroup.get(group.id).map(entryHtml).join('')+'</section>').join('')||'<div class="empty"><strong>No entries match</strong>Try another session, show thoughts, or reset the filters.</div>';
+ const hiddenThoughts=state.model.entries.filter(e=>(state.session==='all'||e.session===state.session)&&(!state.group||e.group===state.group)&&e.kind==='thought').length;
+ $('view-count').textContent='Showing '+visible.length+' of '+entries.length+' matching entries'+(!state.thoughts&&hiddenThoughts?' · '+hiddenThoughts+' thoughts hidden':'');
+ $('load-more').hidden=entries.length<=visible.length;
+ $('load-more').textContent='Show next '+Math.min(120,entries.length-visible.length)+' entries';
+ $('thoughts').textContent=state.thoughts?'Hide thoughts':'Show thoughts';
+ $('thoughts').setAttribute('aria-pressed',String(state.thoughts));
+ renderNav();
+}
+function renderSessions() {
+ $('session-filter').innerHTML='<option value="all">All sessions ('+state.model.sessions.size+')</option>'+[...state.model.sessions.values()].map(session=>'<option value="'+escapeHtml(session.id)+'">'+escapeHtml((session.player?session.player+' · ':'')+short(session.id,24))+'</option>').join('');
+ $('session-filter').value=state.session;
+}
+function resetFilters() {
+ state.group=null;state.query='';state.kind='all';state.thoughts=false;state.limit=120;
+ $('search').value='';$('kind-filter').value='all';renderTimeline();
+}
+function loadLog(text,source='Pasted conversation') {
+ $('import-status').hidden=true;
+ const model=parseLog(text);
+ if(!model.records.length) {
+  $('import-status').textContent=text.trim()?'No Forge ACP/MCP entries found. Paste a log containing “[ACP session-id] USER:” or “[MCP invocation-id] TOOL CALL tool_name:”. Plain file logs and console-prefixed logs are supported.':'Paste a conversation log or open a log file first.';
+  $('import-status').classList.add('error');$('import-status').hidden=false;$('importer').hidden=false;if(state.model)$('importer').classList.add('editing');window.scrollTo({top:0});return false;
+ }
+ if($('inspector').open)$('inspector').close();$('detail-body').replaceChildren();
+ state.model=model;state.source=source;state.session='all';state.group=null;state.selected=null;state.navLimit=200;
+ $('log-input').value=text;$('source-name').textContent=source;
+ $('source-meta').textContent=model.records.length.toLocaleString()+' log entries · '+countLabel(model.sessions.size,'session')+' · '+(model.bytes/1024).toFixed(0)+' KB';
+ $('decision-count').textContent=model.groups.filter(g=>g.prompt).length.toLocaleString();
+ $('tool-count').textContent=model.entries.filter(e=>e.kind==='tool'&&e.call).length.toLocaleString();
+ $('error-count').textContent=model.entries.filter(e=>e.error).length.toLocaleString();
+ $('importer').hidden=true;$('workspace').hidden=false;
+ for(const id of ['edit-log','export','clear'])$(id).hidden=false;
+ $('cancel-edit').hidden=false;
+ $('parse-notice').hidden=!model.preamble;
+ $('parse-notice').textContent=model.preamble?'Text before the first recognized log entry was kept as a preamble in the JSON export. The timeline starts at the first ACP/MCP entry.':'';
+ renderSessions();resetFilters();window.scrollTo({top:0});return true;
+}
+function simple(value) {return value===null?'null':typeof value==='object'?JSON.stringify(value):String(value);}
+function renderData(value,depth=0) {
+ if(depth>8)return '<pre>'+escapeHtml(JSON.stringify(value,null,2))+'</pre>';
+ if(Array.isArray(value)) {
+  if(!value.length)return '<p class="small-note">Empty list</p>';
+  const shown=value.slice(0,200),note=value.length>200?'<p class="small-note">Showing the first 200 of '+value.length+' items. Raw source includes all items.</p>':'';
+  if(shown.every(v=>v && typeof v.name==='string' && Array.isArray(v.cards))) {
+   return shown.map(section=>'<details class="data-array" open><summary>'+escapeHtml(section.name)+(section.totalCards!==undefined?' · '+escapeHtml(section.totalCards)+' cards':'')+'</summary>'+renderData(section.cards,depth+1)+'</details>').join('')+note;
+  }
+  if(shown.every(v=>v!==null&&typeof v==='object'&&!Array.isArray(v))) {
+   const columns=[...new Set(shown.flatMap(v=>Object.keys(v)))];
+   return '<div class="data-table-wrap"><table><thead><tr>'+columns.map(key=>'<th>'+escapeHtml(key)+'</th>').join('')+'</tr></thead><tbody>'+shown.map(row=>'<tr>'+columns.map(key=>'<td>'+escapeHtml(row[key]===undefined?'—':simple(row[key]))+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'+note;
+  }
+  return shown.map((v,index)=>'<div class="array-item"><span class="small-note">'+index+'</span>'+renderData(v,depth+1)+'</div>').join('')+note;
+ }
+ if(value!==null&&typeof value==='object') {
+  if(!Object.keys(value).length)return '<p class="small-note">No arguments</p>';
+  return '<dl class="data-object">'+Object.entries(value).map(([key,v])=>typeof v==='object'&&v!==null?'<dt>'+escapeHtml(key)+'</dt><dd>'+renderData(v,depth+1)+'</dd>':'<dt>'+escapeHtml(key)+'</dt><dd>'+escapeHtml(simple(v))+'</dd>').join('')+'</dl>';
+ }
+ return '<div class="prose">'+escapeHtml(simple(value))+'</div>';
+}
+function formattedPayload(text) {
+ const parsed=parsePayload(text);
+ return parsed?'<p class="small-note">'+escapeHtml(parsed.format)+'</p>'+renderData(parsed.value):'<div class="prose">'+escapeHtml(text||'(empty)')+'</div>';
+}
+function formattedPrompt(text) {
+ const options=[],context=[];
+ for(const line of text.split('\n')) {
+  const match=line.match(/^(\d+):\s?(.*)$/);
+  if(match)options.push({index:match[1],text:match[2]});
+  else if(options.length&&/^\s{2,}\S/.test(line)) options[options.length-1].text+='\n'+line;
+  else context.push(line);
+ }
+ return '<h3>Prompt & instructions</h3><div class="prose">'+escapeHtml(context.join('\n').trim())+'</div>'+(options.length?'<h3>Offered choices · '+options.length+'</h3><div class="data-table-wrap"><table><thead><tr><th>Index</th><th>Option</th></tr></thead><tbody>'+options.map(o=>'<tr><td class="option-index">'+escapeHtml(o.index)+'</td><td>'+escapeHtml(o.text)+'</td></tr>').join('')+'</tbody></table></div>':'');
+}
+function entrySource(entry) {return entry.kind==='tool'?[entry.call?.raw,entry.result?.raw].filter(Boolean).join('\n\n'):entry.record.raw;}
+function renderDetail() {
+ const entry=state.selected;if(!entry)return;
+ $('tab-formatted').setAttribute('aria-selected',String(!state.raw));$('tab-raw').setAttribute('aria-selected',String(state.raw));
+ $('detail-body').setAttribute('aria-labelledby',state.raw?'tab-raw':'tab-formatted');
+ if(state.raw) {$('detail-body').innerHTML='<pre>'+escapeHtml(entrySource(entry))+'</pre>';return;}
+ const record=entry.record||entry.call||entry.result;
+ let html='<div class="detail-identity">Session: '+escapeHtml(entry.session)+'<br>Linked by: '+escapeHtml(entry.association)+(entry.requestId?'<br>Request: '+escapeHtml(entry.requestId):'')+'<br>Source line: '+record.line+(entry.kind==='tool'?'<br>Invocation: '+escapeHtml((entry.call||entry.result).id):'')+'</div>';
+ if(entry.kind==='tool') {
+  if(entry.association.startsWith('inferred'))html+='<div class="callout">MCP log entries do not carry a session ID. This tool was placed with the nearest preceding ACP activity. Interleaved sessions can make that association ambiguous.</div>';
+  if(entry.selections) html+='<h3>Selected options</h3>'+renderData(entry.selections.map(s=>({index:s.index,option:s.label??'Option label absent from this excerpt'})));
+  html+='<h3>Arguments</h3>'+(entry.call?formattedPayload(entry.call.body):'<p class="small-note">The call is not present in this excerpt.</p>');
+  html+='<h3>'+(entry.error?'Error':'Result')+(elapsed(entry)?' · '+escapeHtml(elapsed(entry)):'')+'</h3>'+(entry.result?(entry.error?'<div class="error-detail">'+escapeHtml(entry.result.body)+'</div>':formattedPayload(entry.result.body)):'<p class="small-note">No result is present in this excerpt.</p>');
+ } else html+=entry.kind==='prompt'?formattedPrompt(entry.record.body):'<div class="prose">'+escapeHtml(entry.record.body||'(empty message)')+'</div>';
+ $('detail-body').innerHTML=html;
+}
+function inspect(key) {
+ state.selected=state.model.entries.find(e=>e.key===key);state.raw=false;
+ const entry=state.selected;$('detail-kind').textContent=entry.kind==='tool'?(entry.error?'Tool error':'Tool call & result'):entry.kind==='prompt'?'Forge prompt':entry.kind==='thought'?'Agent thought':'Agent message';
+ $('detail-title').textContent=entry.title;
+ $('detail-context').textContent=timeLabel(entry)+(entry.kind==='tool'?' · '+(entry.error?'Error':entry.result?'Result received':'Result missing'):'');
+ renderDetail();$('inspector').showModal();$('inspector').scrollTop=0;
+}
+let toastTimer;
+function toast(text) {$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,3000);}
+async function copy(text) {
+ try {await navigator.clipboard.writeText(text);toast('Source copied');}
+ catch {const input=document.createElement('textarea');input.value=text;input.style.cssText='position:fixed;opacity:0;';($('inspector').open?$('inspector'):document.body).append(input);input.select();const copied=document.execCommand('copy');input.remove();toast(copied?'Source copied':'Copy unavailable. Select the raw source to copy it.');}
+}
+async function openFile(file) {
+ try {const text=await file.text();loadLog(text,file.name);}
+ catch {toast('Could not read that file. Try pasting its text.');}
+}
+$('parse').addEventListener('click',()=>loadLog($('log-input').value,state.model?state.source:'Pasted conversation'));
+$('open-file').addEventListener('click',()=>$('file-input').click());
+$('file-input').addEventListener('change',event=>{if(event.target.files[0])openFile(event.target.files[0]);event.target.value='';});
+$('log-input').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter')$('parse').click();});
+$('edit-log').addEventListener('click',()=>{$('importer').hidden=false;$('importer').classList.add('editing');$('cancel-edit').hidden=false;$('importer').scrollIntoView({behavior:'smooth'});$('log-input').focus();});
+$('cancel-edit').addEventListener('click',()=>{$('importer').hidden=true;});
+$('clear').addEventListener('click',()=>{
+ if($('inspector').open)$('inspector').close();state.model=null;state.selected=null;state.source='Pasted conversation';
+ $('toast').hidden=true;clearTimeout(toastTimer);$('log-input').value='';$('importer').hidden=false;$('importer').classList.remove('editing');$('workspace').hidden=true;$('timeline').replaceChildren();$('decision-nav').replaceChildren();$('detail-body').replaceChildren();$('import-status').hidden=true;
+ for(const id of ['edit-log','export','clear','cancel-edit'])$(id).hidden=true;window.scrollTo({top:0});
+});
+$('export').addEventListener('click',()=>{
+ if(!state.model)return;
+ const {records,preamble}=state.model;
+ const output={source:state.source,preamble,records,entries:state.model.entries.map(({search,...entry})=>entry),groups:state.model.groups.map(({entries,prompt,...group})=>({...group,entryKeys:entries.map(e=>e.key)}))};
+ const url=URL.createObjectURL(new Blob([JSON.stringify(output,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='forge-conversation.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+$('session-filter').addEventListener('change',event=>{state.session=event.target.value;state.navLimit=200;resetFilters();});
+let searchTimer;$('search').addEventListener('input',event=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.query=event.target.value.trim().toLowerCase();state.limit=120;renderTimeline();},150);});
+$('kind-filter').addEventListener('change',event=>{state.kind=event.target.value;state.limit=120;renderTimeline();});
+$('thoughts').addEventListener('click',()=>{state.thoughts=!state.thoughts;state.limit=120;renderTimeline();});
+$('reset-filters').addEventListener('click',resetFilters);
+$('decision-jump').addEventListener('change',event=>{state.group=event.target.value||null;state.limit=120;renderTimeline();});
+$('all-decisions').addEventListener('click',()=>{state.group=null;state.limit=120;renderTimeline();});
+$('decision-nav').addEventListener('click',event=>{if(event.target.closest('#more-decisions')){state.navLimit+=200;renderNav();return;}const button=event.target.closest('[data-group]');if(button){state.group=button.dataset.group;state.limit=120;renderTimeline();$('timeline').scrollIntoView({behavior:'smooth',block:'start'});}});
+$('latest').addEventListener('click',()=>{const groups=selectedGroups();const group=groups.at(-1);if(group){state.group=group.id;state.query='';state.kind='all';state.limit=120;$('search').value='';$('kind-filter').value='all';renderTimeline();$('timeline').scrollIntoView({behavior:'smooth'});}});
+$('load-more').addEventListener('click',()=>{state.limit+=120;renderTimeline();});
+$('timeline').addEventListener('click',event=>{const button=event.target.closest('[data-entry]');if(button)inspect(button.dataset.entry);});
+$('close-detail').addEventListener('click',()=>$('inspector').close());
+$('inspector').addEventListener('click',event=>{if(event.target===$('inspector')){const rect=$('inspector').getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)$('inspector').close();}});
+$('tab-formatted').addEventListener('click',()=>{state.raw=false;renderDetail();});$('tab-raw').addEventListener('click',()=>{state.raw=true;renderDetail();});
+for(const id of ['tab-formatted','tab-raw'])$(id).addEventListener('keydown',event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();state.raw=!state.raw;renderDetail();$(state.raw?'tab-raw':'tab-formatted').focus();}});
+$('copy-entry').addEventListener('click',()=>{if(state.selected)copy(entrySource(state.selected));});
+let dragDepth=0;
+window.addEventListener('dragenter',event=>{if([...event.dataTransfer.types].includes('Files')){event.preventDefault();dragDepth++;$('drop-overlay').hidden=false;}});
+window.addEventListener('dragover',event=>{if([...event.dataTransfer.types].includes('Files'))event.preventDefault();});
+window.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('drop-overlay').hidden=true;}});
+window.addEventListener('drop',event=>{if(event.dataTransfer.files.length){event.preventDefault();dragDepth=0;$('drop-overlay').hidden=true;openFile(event.dataTransfer.files[0]);}});
+
+function demoLog() {
+ let tick=0;const lines=[];const session='islands-vs-bolt';
+ const acp=(role,body)=>lines.push('2026-11-02 10:04:'+String(tick++).padStart(2,'0')+'.000 [ACP '+session+'] '+role+':\n'+body);
+ const tool=(id,name,args,result,error=false)=>{lines.push('2026-11-02 10:04:'+String(tick++).padStart(2,'0')+'.000 [MCP '+id+'] TOOL CALL '+name+':\n'+args);lines.push('2026-11-02 10:04:'+String(tick++).padStart(2,'0')+'.125 [MCP '+id+'] TOOL '+(error?'ERROR':'RESULT')+' '+name+':\n'+(typeof result==='object'?JSON.stringify(result):result));};
+ acp('USER','You are an AI player for Magic: The Gathering running inside Forge.\nDiscover every MCP tool. You can call get_deck to read your registered deck list.');
+ tool('deck-1','get_deck','{}',{name:'Islands & Lightning',sections:[{name:'Main',totalCards:60,cards:[{name:'Island',count:24},{name:'Lightning Bolt',count:4},{name:'Other spells',count:32}]}]});
+ acp('AGENT','Tools discovered. I can inspect the deck and answer Forge’s pending decisions.');
+ acp('USER','You are playing Magic: The Gathering as One and have priority.\nRequest ID: priority-1\nTurn player: One\nPhase: MAIN1\n\nCall get_available_actions with this request ID to see actions and costs. Affordability is not checked.');
+ tool('actions-1','get_available_actions','{requestId=priority-1}',{requestId:'priority-1',affordabilityChecked:false,actions:[{cardId:12,abilityId:56,name:'Lightning Bolt',zone:'Hand',kind:'Cast spell',cost:'{R}',description:'Deal 3 damage to any target.'},{cardId:13,abilityId:57,name:'Island',zone:'Hand',kind:'Play land',cost:'None',description:'Play land.'}]});
+ tool('play-1','play_action','{requestId=priority-1, cardId=12, abilityId=56}','Priority decision accepted. Finish your response so Forge can execute it.');
+ acp('AGENT THOUGHT','The spell is listed, but I still need to choose its target and pay the red mana cost.');
+ acp('AGENT','I choose Lightning Bolt.');
+ acp('USER','You are playing as One.\nRequest ID: target-1\nDecision: Choose targets; each option may be chosen once.\nPhase: MAIN1\nPlayer: One id=0 life=20\nPlayer: Two id=1 life=17\nChoose 1..1 options. Call submit_choice with requestId and choices.\n0: Two id=1 life=17\n1: Opponent creature id=18 controller=Two type=Creature P/T=2/2\nYou may call cancel_action with this request ID instead to cancel without passing priority.');
+ tool('target-call','submit_choice','{requestId=target-1, choices=[1]}','Choice accepted. Finish this response so Forge can continue.');
+ acp('AGENT','Target the opposing creature.');
+ acp('USER','You are playing as One.\nRequest ID: payment-1\nDecision: Pay remaining mana {R}. Choose a source, floating mana, or life payment.\nPhase: MAIN1\nChoose 0..1 options. Call submit_choice with requestId and choices.\n0: Activate mana ability: Island id=7: Add {U}.\n1: Activate mana ability: Island id=8: Add {U}.\nYou may call cancel_action with requestId "payment-1" instead to cancel this action without passing priority.');
+ tool('bad-cancel','cancel_action','{requestId=priority-1}','No pending callback for request: priority-1',true);
+ tool('cancel-1','cancel_action','{requestId=payment-1}','Action cancellation accepted. Finish this response so Forge can abort it and offer another action without passing priority.');
+ acp('AGENT','I only have Islands and cannot produce red mana. Cancel Lightning Bolt; retain priority.');
+ acp('USER','You are playing Magic: The Gathering as One and have priority.\nRequest ID: priority-2\nTurn player: One\nPhase: MAIN1\nCall get_available_actions to choose another action, or pass_priority to pass.');
+ tool('actions-2','get_available_actions','{requestId=priority-2}',{requestId:'priority-2',affordabilityChecked:false,actions:[{cardId:12,abilityId:56,name:'Lightning Bolt',zone:'Hand',kind:'Cast spell',cost:'{R}'},{cardId:13,abilityId:57,name:'Island',zone:'Hand',kind:'Play land',cost:'None'}]});
+ tool('play-2','play_action','{requestId=priority-2, cardId=13, abilityId=57}','Priority decision accepted. Finish your response so Forge can execute it.');
+ acp('AGENT','Play Island instead.');
+ return lines.join('\n\n');
+}
+$('demo').addEventListener('click',()=>loadLog(demoLog(),'Example · Islands & Lightning Bolt'));
+</script>
+</body>
+</html>
