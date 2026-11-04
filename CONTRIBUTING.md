@@ -48,6 +48,15 @@ without packaging or installing them. The profile sets the Java options and
 working directory needed by the desktop application. To pass application
 arguments, add `-Ddesktop.args="..."`.
 
+Live LLM gameplay evals have a separate opt-in command:
+
+```sh
+mvn -pl forge-gui -am -Pllm-evals test
+```
+
+They do not run with normal tests. See [Live LLM evals](docs/Development/LLM-Evals.md)
+for prerequisites, scenarios, and results.
+
 ### IntelliJ
 
 IntelliJ is the recommended IDE for Forge development. Quick start guide for [setting up the Forge project within IntelliJ](https://github.com/Card-Forge/forge/wiki/IntelliJ-setup).

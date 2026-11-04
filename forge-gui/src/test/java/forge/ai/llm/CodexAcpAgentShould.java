@@ -63,17 +63,24 @@ public class CodexAcpAgentShould {
     }
 
     private AcpSyncClient clientSelecting(String model) {
+        return clientSelecting(model, CodexAcpAgent.REASONING_EFFORT);
+    }
+
+    private AcpSyncClient clientSelecting(String model, String reasoningEffort) {
         final AcpSyncClient client = mock(AcpSyncClient.class);
         when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session"));
         final SessionConfigSelect option = SessionConfigSelect.builder()
                 .id("model").name("Model").currentValue(model)
                 .options(List.of(new SessionConfigSelectOption(model, model))).build();
-        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(option)));
+        final SessionConfigSelect reasoning = SessionConfigSelect.builder()
+                .id("reasoning_effort").name("Reasoning effort").currentValue(reasoningEffort)
+                .options(List.of(new SessionConfigSelectOption(reasoningEffort, reasoningEffort))).build();
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(option, reasoning)));
         return client;
     }
 
     @Test
-    public void sendTheOpeningPromptAfterInitializingTheSessionAndModel() {
+    public void sendTheOpeningPromptAfterInitializingTheSessionModelAndReasoningEffort() {
         final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
         final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
         try {
@@ -89,6 +96,8 @@ public class CodexAcpAgentShould {
             Assert.assertTrue(mcp.url().matches("http://127\\.0\\.0\\.1:[0-9]+/mcp"));
             order.verify(client).setSessionConfigOption(
                     SetSessionConfigOptionRequest.select("test-session", "model", "gpt-6.1-sol"));
+            order.verify(client).setSessionConfigOption(
+                    SetSessionConfigOptionRequest.select("test-session", "reasoning_effort", "low"));
             final ArgumentCaptor<PromptRequest> opening = ArgumentCaptor.forClass(PromptRequest.class);
             order.verify(client).prompt(opening.capture());
             Assert.assertEquals(opening.getValue().sessionId(), "test-session");
@@ -103,6 +112,42 @@ public class CodexAcpAgentShould {
         agent.close();
         verify(client).close();
         verifyNoMoreInteractions(client);
+    }
+
+    @Test
+    public void useConfiguredModelAndReasoningEffort() {
+        final String previousModel = System.getProperty("forge.llm.model");
+        final String previousReasoning = System.getProperty("forge.llm.reasoningEffort");
+        try {
+            System.setProperty("forge.llm.model", "eval-model");
+            System.setProperty("forge.llm.reasoningEffort", "high");
+            final var options = CodexAcpAgent.Options.fromSystemProperties();
+            final AcpSyncClient client = clientSelecting("eval-model", "high");
+            try (var agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY, null, options)) {
+                Assert.assertEquals(agent.options(), new CodexAcpAgent.Options("eval-model", "high"));
+                verify(client).setSessionConfigOption(
+                        SetSessionConfigOptionRequest.select("test-session", "model", "eval-model"));
+                verify(client).setSessionConfigOption(
+                        SetSessionConfigOptionRequest.select("test-session", "reasoning_effort", "high"));
+            }
+            verify(client).close();
+        } finally {
+            if (previousModel == null) System.clearProperty("forge.llm.model");
+            else System.setProperty("forge.llm.model", previousModel);
+            if (previousReasoning == null) System.clearProperty("forge.llm.reasoningEffort");
+            else System.setProperty("forge.llm.reasoningEffort", previousReasoning);
+        }
+    }
+
+    @Test
+    public void closeTheClientWhenTheRequestedReasoningEffortIsNotSelected() {
+        final AcpSyncClient client = clientSelecting("eval-model", "low");
+        final var options = new CodexAcpAgent.Options("eval-model", "high");
+        final var error = Assert.expectThrows(IllegalStateException.class,
+                () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY, null, options));
+        Assert.assertTrue(error.getMessage().contains("high"));
+        verify(client).close();
+        verify(client, times(0)).prompt(any());
     }
 
     @Test

@@ -263,6 +263,23 @@ public class ManaPool extends ManaConversionMatrix implements Iterable<Mana> {
         return true;
     }
 
+    /** Spend the exact offered unit, preserving the source of other otherwise equivalent pool mana. */
+    public boolean tryPayCostWithExactMana(SpellAbility sa, ManaCostBeingPaid cost, Mana mana) {
+        if (!mana.meetsManaRestrictions(sa) || !sa.allowsPayingWithShard(mana.getSourceCard(), mana.getColor())
+                || !cost.isNeeded(mana, this)) return false;
+        Iterator<Mana> iterator = floatingMana.get(mana.getColor()).iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next() != mana) continue;
+            iterator.remove();
+            owner.updateManaForView();
+            owner.getGame().fireEvent(new GameEventManaPool(owner, EventValueChangeType.Removed,
+                    EnumSet.of(MagicColor.Color.fromByte(mana.getColor()))));
+            cost.payMana(mana, this);
+            return true;
+        }
+        return false;
+    }
+
     public final boolean isEmpty() {
         return floatingMana.isEmpty();
     }

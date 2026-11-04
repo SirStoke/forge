@@ -49,7 +49,8 @@ public class PlayerControllerLlm extends LlmDecisionController {
         initializationAttempted = true;
         try {
             agent = agentFactory.get();
-            Logger.info("Initialized Codex ACP for {} with {}", player.getName(), CodexAcpAgent.MODEL);
+            Logger.info("Initialized Codex ACP for {} with {} (reasoning effort: {})", player.getName(),
+                    agent.options().model(), agent.options().reasoningEffort());
         } catch (RuntimeException e) {
             Logger.error(e, "Could not initialize Codex ACP for {}", player.getName());
         }

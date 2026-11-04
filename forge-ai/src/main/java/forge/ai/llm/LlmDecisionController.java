@@ -67,6 +67,9 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     protected abstract CodexAcpAgent decisionAgent();
 
+    /** Allows live evals to reject a missing model decision instead of accepting local AI behavior. */
+    protected void onLlmFallback(String title) { }
+
     final boolean usesLlm() {
         return decisionAgent() != null && !getGame().isSimulationCopy() && localDecisions == 0;
     }
@@ -223,6 +226,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
             title = title + "\nThe previous combination was illegal. Choose a different legal combination.";
         }
         Logger.warn("Using local fallback for {}: {}", player, title);
+        onLlmFallback(title);
         return locally(fallback);
     }
 
@@ -263,6 +267,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         SubmitChoice answer = request(title, List.of(), min, max, false, true, false);
         if (answer != null) return answer.value();
         Logger.warn("Using local numeric fallback for {}: {}", player, title);
+        onLlmFallback(title);
         return locally(fallback);
     }
 

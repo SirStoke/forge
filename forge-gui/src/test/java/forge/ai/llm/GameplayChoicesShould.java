@@ -79,7 +79,11 @@ public class GameplayChoicesShould {
             });
             var model = SessionConfigSelect.builder().id("model").name("Model").currentValue(CodexAcpAgent.MODEL)
                     .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.MODEL, CodexAcpAgent.MODEL))).build();
-            when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(model)));
+            var reasoning = SessionConfigSelect.builder().id("reasoning_effort").name("Reasoning effort")
+                    .currentValue(CodexAcpAgent.REASONING_EFFORT)
+                    .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.REASONING_EFFORT,
+                            CodexAcpAgent.REASONING_EFFORT))).build();
+            when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(model, reasoning)));
             agent = CodexAcpAgent.initialize(client, Path.of("."), player);
             controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(), () -> agent);
             player.dangerouslySetController(controller);
