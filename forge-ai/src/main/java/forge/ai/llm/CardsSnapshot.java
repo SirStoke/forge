@@ -22,6 +22,10 @@ public record CardsSnapshot(List<CardInfo> cards) {
         return capture(viewer.getGame().getCardsIn(ZoneType.Battlefield), viewer);
     }
 
+    static CardsSnapshot zone(Player owner, ZoneType zone, Player viewer) {
+        return capture(owner.getCardsIn(zone), viewer);
+    }
+
     private static CardsSnapshot capture(Iterable<Card> cards, Player viewer) {
         final List<CardInfo> result = new ArrayList<>();
         for (Card card : cards) {

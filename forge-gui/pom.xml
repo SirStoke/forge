@@ -135,7 +135,8 @@
                                 <include>**/*Eval.java</include>
                             </includes>
                             <failIfNoTests>true</failIfNoTests>
-                            <forkedProcessTimeoutInSeconds>600</forkedProcessTimeoutInSeconds>
+                            <reuseForks>false</reuseForks>
+                            <forkedProcessTimeoutInSeconds>1200</forkedProcessTimeoutInSeconds>
                         </configuration>
                     </plugin>
                 </plugins>

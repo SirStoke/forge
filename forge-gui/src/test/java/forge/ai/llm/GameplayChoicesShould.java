@@ -184,6 +184,28 @@ public class GameplayChoicesShould {
     }
 
     @Test
+    public void revealOnlyTheCardsIndexAllowsLookingAtAndApplyTheChosenLibraryOrder() {
+        try (Session s = new Session()) {
+            Card index = s.card(s.player, ZoneType.Hand, "Index", "ManaCost:U", "Types:Sorcery",
+                    "A:SP$ RearrangeTopOfLibrary | Defined$ You | NumCards$ 3 | SpellDescription$ Reorder three cards.", "Oracle:");
+            Card first = s.card(s.player, ZoneType.Library, "First card", "ManaCost:0", "Types:Artifact", "Oracle:");
+            Card second = s.card(s.player, ZoneType.Library, "Second card", "ManaCost:0", "Types:Artifact", "Oracle:");
+            Card third = s.card(s.player, ZoneType.Library, "Third card", "ManaCost:0", "Types:Artifact", "Oracle:");
+            s.card(s.opponent, ZoneType.Library, "Opponent secret", "ManaCost:0", "Types:Artifact", "Oracle:");
+            s.answer(prompt -> {
+                Assert.assertTrue(prompt.contains("LAST selected card will be on top"));
+                Assert.assertFalse(prompt.contains("Opponent secret"));
+                return s.choices(prompt, "Second card id=", "First card id=", "Third card id=");
+            });
+            final SpellAbility ability = index.getSpellAbilities().get(0);
+            ability.setActivatingPlayer(s.player);
+            forge.game.ability.AbilityUtils.resolve(ability);
+            Assert.assertEquals(new ArrayList<>(s.player.getCardsIn(ZoneType.Library)), List.of(third, first, second));
+            Assert.assertTrue(s.controller.describe(first).startsWith("Hidden card"), "Looking permission must be temporary");
+        }
+    }
+
+    @Test
     public void payAdditionalCostsUsingChosenCardsAndOrder() {
         try (Session s = new Session()) {
             Card keep = s.creature(s.player, "Keep creature");

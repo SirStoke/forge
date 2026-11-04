@@ -27,7 +27,7 @@ final class GameObserver implements AutoCloseable {
     void refresh() {
         if (!closed && viewer != null) {
             current.set(new Snapshot(StackSnapshot.capture(viewer), CardsSnapshot.hand(viewer),
-                    CardsSnapshot.battlefield(viewer), deck));
+                    CardsSnapshot.battlefield(viewer), deck, GameStateSnapshot.capture(viewer)));
         }
     }
 
@@ -54,6 +54,7 @@ final class GameObserver implements AutoCloseable {
         current.set(null);
     }
 
-    record Snapshot(StackSnapshot stack, CardsSnapshot hand, CardsSnapshot battlefield, DeckSnapshot deck) {
+    record Snapshot(StackSnapshot stack, CardsSnapshot hand, CardsSnapshot battlefield, DeckSnapshot deck,
+                    GameStateSnapshot state) {
     }
 }

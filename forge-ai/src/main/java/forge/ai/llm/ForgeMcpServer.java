@@ -9,6 +9,7 @@ import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveDeck;
 import forge.ai.llm.tools.ObserveBattlefield;
+import forge.ai.llm.tools.ObserveGameState;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.PassPriority;
 import forge.ai.llm.tools.SubmitChoice;
@@ -39,14 +40,14 @@ final class ForgeMcpServer implements AutoCloseable {
     private final GameObserver game;
     private final AtomicReference<PriorityActionsSnapshot> priorityActions = new AtomicReference<>();
 
-    private ForgeMcpServer(Player viewer) throws IOException {
+    private ForgeMcpServer(Player viewer, LlmMatchProfile.Session profile) throws IOException {
         directory = Files.createTempDirectory("forge-mcp-");
         tomcat.setBaseDir(directory.toString());
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("address", "127.0.0.1");
         game = new GameObserver(viewer);
 
-        final ToolRepository tools = new ToolRepository();
+        final ToolRepository tools = new ToolRepository(profile);
         tools.register(SubmitChoice::schema, SubmitChoice::compile,
                 request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Choose(request)));
         tools.register(PayMana::schema, PayMana::compile,
@@ -60,6 +61,7 @@ final class ForgeMcpServer implements AutoCloseable {
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
         tools.register(ObserveDeck::schema, ObserveDeck::compile, request -> game.read().deck());
         tools.register(ObserveBattlefield::schema, ObserveBattlefield::compile, request -> game.read().battlefield());
+        tools.register(ObserveGameState::schema, ObserveGameState::compile, request -> game.read().state());
         tools.register(GetAvailableActions::schema, GetAvailableActions::compile,
                 request -> availableActions(request.requestId()));
         tools.register(PlayAction::schema, PlayAction::compile, request -> priorityDecision.call(
@@ -84,8 +86,12 @@ final class ForgeMcpServer implements AutoCloseable {
     }
 
     static ForgeMcpServer start(Player viewer) {
+        return start(viewer, LlmMatchProfile.session(viewer));
+    }
+
+    static ForgeMcpServer start(Player viewer, LlmMatchProfile.Session profile) {
         try {
-            final ForgeMcpServer server = new ForgeMcpServer(viewer);
+            final ForgeMcpServer server = new ForgeMcpServer(viewer, profile);
             try {
                 server.tomcat.start();
                 return server;

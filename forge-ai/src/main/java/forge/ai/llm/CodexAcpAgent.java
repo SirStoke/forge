@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** A Codex session with an MCP endpoint for game decisions. */
 final class CodexAcpAgent implements AutoCloseable {
     // Defaults; each session captures its own options when it starts.
-    static final String MODEL = "gpt-6.1-sol";
+    static final String MODEL = "gpt-6.1-terra";
     static final String REASONING_EFFORT = "low";
     private static final String ADAPTER = "@agentclientprotocol/codex-acp@2.4.0";
 
@@ -56,16 +56,18 @@ final class CodexAcpAgent implements AutoCloseable {
     private final ForgeMcpServer mcpServer;
     private final ConversationLog conversation;
     private final Options options;
+    private final LlmMatchProfile.Session profile;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Thread shutdownHook;
 
     private CodexAcpAgent(AcpSyncClient client, String sessionId, ForgeMcpServer mcpServer,
-                          ConversationLog conversation, Options options) {
+                          ConversationLog conversation, Options options, LlmMatchProfile.Session profile) {
         this.client = client;
         this.sessionId = sessionId;
         this.mcpServer = mcpServer;
         this.conversation = conversation;
         this.options = options;
+        this.profile = profile;
         shutdownHook = new Thread(this::close, "forge-codex-acp-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
@@ -77,19 +79,29 @@ final class CodexAcpAgent implements AutoCloseable {
     static CodexAcpAgent start(Path workingDirectory, Player player, Options options) {
         Objects.requireNonNull(options, "options");
         final ConversationLog conversation = new ConversationLog();
-        final AgentParameters parameters = AgentParameters.builder("pnpm")
-                .args("dlx", ADAPTER)
-                .addEnvVar("NO_BROWSER", "1")
-                .build();
-        final StdioAcpClientTransport transport = new StdioAcpClientTransport(parameters);
-        final AcpSyncClient client = AcpClient.sync(transport)
-                .clientInfo(new Implementation("mtg-forge", BuildInfo.getVersionString()))
-                .sessionUpdateHandler(conversation::onUpdate)
-                // First launch may also need to download the pinned adapter.
-                .requestTimeout(Duration.ofMinutes(2))
-                .promptTimeout(Duration.ofMinutes(2))
-                .build();
-        return initialize(client, workingDirectory, conversation, player, options);
+        final var profile = LlmMatchProfile.session(player);
+        profile.configure(options);
+        conversation.profile = profile;
+        try (var startup = profile.scope("startup", "Start Codex session")) {
+            try {
+                final AgentParameters parameters = AgentParameters.builder("pnpm")
+                        .args("dlx", ADAPTER)
+                        .addEnvVar("NO_BROWSER", "1")
+                        .build();
+                final StdioAcpClientTransport transport = new StdioAcpClientTransport(parameters);
+                final AcpSyncClient client = AcpClient.sync(transport)
+                        .clientInfo(new Implementation("mtg-forge", BuildInfo.getVersionString()))
+                        .sessionUpdateHandler(conversation::onUpdate)
+                        // First launch may also need to download the pinned adapter.
+                        .requestTimeout(Duration.ofMinutes(2))
+                        .promptTimeout(Duration.ofMinutes(2))
+                        .build();
+                return initialize(client, workingDirectory, conversation, player, options, profile);
+            } catch (RuntimeException e) {
+                startup.data("outcome", "error");
+                throw e;
+            }
+        }
     }
 
     static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory) {
@@ -106,15 +118,39 @@ final class CodexAcpAgent implements AutoCloseable {
 
     private static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory,
                                             ConversationLog conversation, Player player, Options options) {
+        final var profile = LlmMatchProfile.session(player);
+        profile.configure(options);
+        conversation.profile = profile;
+        try (var startup = profile.scope("startup", "Start Codex session")) {
+            try {
+                return initialize(client, workingDirectory, conversation, player, options, profile);
+            } catch (RuntimeException e) {
+                startup.data("outcome", "error");
+                throw e;
+            }
+        }
+    }
+
+    private static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory,
+                                            ConversationLog conversation, Player player, Options options,
+                                            LlmMatchProfile.Session profile) {
         ForgeMcpServer mcpServer = null;
         CodexAcpAgent agent = null;
         try {
             Objects.requireNonNull(options, "options");
-            mcpServer = ForgeMcpServer.start(player);
-            client.initialize();
-            final String sessionId = client.newSession(new NewSessionRequest(
-                    workingDirectory.toAbsolutePath().normalize().toString(),
-                    List.of(new McpServerHttp("mtg-forge", mcpServer.getUrl(), List.of())))).sessionId();
+            try (var setup = profile.scope("startup_step", "Start local MCP server")) {
+                mcpServer = ForgeMcpServer.start(player, profile);
+            }
+            try (var setup = profile.scope("startup_step", "Initialize ACP adapter")) {
+                client.initialize();
+            }
+            final String sessionId;
+            try (var setup = profile.scope("startup_step", "Create ACP session")) {
+                sessionId = client.newSession(new NewSessionRequest(
+                        workingDirectory.toAbsolutePath().normalize().toString(),
+                        List.of(new McpServerHttp("mtg-forge", mcpServer.getUrl(), List.of())))).sessionId();
+            }
+            profile.sessionId(sessionId);
             final boolean modelSelected = client.setSessionConfigOption(
                     SetSessionConfigOptionRequest.select(sessionId, "model", options.model()))
                     .configOptions().stream().anyMatch(option -> option instanceof SessionConfigSelect select
@@ -129,8 +165,8 @@ final class CodexAcpAgent implements AutoCloseable {
             if (!reasoningSelected) {
                 throw new IllegalStateException("Codex did not select the requested reasoning effort: " + options.reasoningEffort());
             }
-            agent = new CodexAcpAgent(client, sessionId, mcpServer, conversation, options);
-            agent.prompt(PromptTemplates.load("conversation-start.mustache").execute(Map.of()));
+            agent = new CodexAcpAgent(client, sessionId, mcpServer, conversation, options, profile);
+            agent.prompt(PromptTemplates.load("conversation-start.mustache").execute(Map.of()), "", "startup", "Session instructions");
             return agent;
         } catch (RuntimeException e) {
             if (agent != null) {
@@ -146,6 +182,10 @@ final class CodexAcpAgent implements AutoCloseable {
             }
             throw e;
         }
+    }
+
+    LlmMatchProfile.Session profile() {
+        return profile;
     }
 
     String getSessionId() {
@@ -177,14 +217,27 @@ final class CodexAcpAgent implements AutoCloseable {
     }
 
     void prompt(String text) {
-        mcpServer.refreshGameState();
-        conversation.flush();
-        ConversationLog.log(sessionId, "USER", text);
-        try {
-            client.prompt(PromptRequest.text(sessionId, text));
-        } finally {
-            // Preserve partial output even if the prompt fails or times out.
-            conversation.flush();
+        prompt(text, "", "other", "Agent prompt");
+    }
+
+    void prompt(String text, String requestId, String decisionType, String title) {
+        try (var request = profile.beginRequest(requestId, decisionType, title, text)) {
+            try {
+                try (var preparation = profile.scope("preparation", "Refresh game observations")) {
+                    mcpServer.refreshGameState();
+                    conversation.flush();
+                    ConversationLog.log(sessionId, "USER", text);
+                }
+                try (var wait = profile.scope("agent_wait", "Agent / transport wait")) {
+                    client.prompt(PromptRequest.text(sessionId, text));
+                }
+            } catch (RuntimeException e) {
+                request.failed();
+                throw e;
+            } finally {
+                // Preserve partial output even if the prompt fails or times out.
+                conversation.flush();
+            }
         }
     }
 
@@ -217,11 +270,14 @@ final class CodexAcpAgent implements AutoCloseable {
     /** Collect streamed text without logging the ACP protocol envelopes. */
     static final class ConversationLog {
         private final StringBuilder text = new StringBuilder();
+        private volatile LlmMatchProfile.Session profile;
         private String sessionId;
         private String role;
         private String messageId;
 
         synchronized void onUpdate(SessionNotification notification) {
+            if (profile != null && (notification.update() instanceof AgentMessageChunk
+                    || notification.update() instanceof AgentThoughtChunk)) profile.firstActivity();
             if (notification.update() instanceof AgentMessageChunk chunk) {
                 append(notification.sessionId(), "AGENT", chunk.messageId(), chunk.content());
             } else if (notification.update() instanceof AgentThoughtChunk chunk) {

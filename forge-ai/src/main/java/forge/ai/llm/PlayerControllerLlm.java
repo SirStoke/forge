@@ -12,6 +12,7 @@ import org.tinylog.Logger;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
@@ -46,6 +47,7 @@ public class PlayerControllerLlm extends LlmDecisionController {
         if (getGame().isSimulationCopy() || initializationAttempted || finished) {
             return;
         }
+        LlmMatchProfile.forGame(getGame());
         initializationAttempted = true;
         try {
             agent = agentFactory.get();
@@ -60,6 +62,7 @@ public class PlayerControllerLlm extends LlmDecisionController {
     public void onGameFinished(GameEventGameFinished event) {
         finished = true;
         if (agent != null) {
+            agent.profile().endAction("game_finished");
             agent.close();
             agent = null;
         }
@@ -67,6 +70,13 @@ public class PlayerControllerLlm extends LlmDecisionController {
 
     @Override
     public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn) {
+        if (agent == null || getGame().isSimulationCopy()) return mulliganDecision(firstPlayer, cardsToReturn);
+        try (var timing = agent.profile().scope("decision", "Mulligan")) {
+            return mulliganDecision(firstPlayer, cardsToReturn);
+        }
+    }
+
+    private boolean mulliganDecision(Player firstPlayer, int cardsToReturn) {
         if (agent != null && !getGame().isSimulationCopy()) {
             try {
                 final var decision = new CompletableFuture<Boolean>();
@@ -77,7 +87,8 @@ public class PlayerControllerLlm extends LlmDecisionController {
                     return "Mulligan decision accepted.";
                 });
                 try {
-                    agent.prompt(MulliganPrompt.render(player, firstPlayer, cardsToReturn, requestId));
+                    agent.prompt(MulliganPrompt.render(player, firstPlayer, cardsToReturn, requestId),
+                            requestId, "mulligan", "Mulligan");
                 } catch (RuntimeException e) {
                     Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
                 } finally {
@@ -90,6 +101,7 @@ public class PlayerControllerLlm extends LlmDecisionController {
                 if (keep != null) {
                     return keep;
                 }
+                agent.profile().fallback("Mulligan");
                 Logger.warn("No mulligan decision submitted for {}; using the built-in AI", player.getName());
             } catch (RuntimeException e) {
                 Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
@@ -105,6 +117,20 @@ public class PlayerControllerLlm extends LlmDecisionController {
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
+        if (agent == null || getGame().isSimulationCopy() || passAfterFailedPlay) return chooseLlmAction();
+        final var profile = agent.profile();
+        profile.beginAction("Priority action");
+        boolean selected = false;
+        try {
+            final var result = chooseLlmAction();
+            selected = result != null && !result.isEmpty();
+            return result;
+        } finally {
+            if (!selected) profile.endAction("pass");
+        }
+    }
+
+    private List<SpellAbility> chooseLlmAction() {
         if (getGame().isSimulationCopy()) return super.chooseSpellAbilityToPlay();
         if (passAfterFailedPlay) {
             passAfterFailedPlay = false;
@@ -113,9 +139,14 @@ public class PlayerControllerLlm extends LlmDecisionController {
         if (agent == null) {
             return null;
         }
+        boolean fallbackRecorded = false;
         try {
             // Preparing alternative actions must not start speculative harness requests.
-            final var options = locally(() -> PriorityActions.available(player));
+            final Map<PriorityDecision.PlayAction, SpellAbility> options;
+            try (var preparation = agent.profile().scope("preparation", "Enumerate priority actions")) {
+                options = locally(() -> PriorityActions.available(player));
+                preparation.data("optionCount", options.size());
+            }
             if (options.isEmpty()) {
                 return null;
             }
@@ -133,27 +164,50 @@ public class PlayerControllerLlm extends LlmDecisionController {
                 return "Priority decision accepted. Finish your response so Forge can execute it.";
             });
             try {
-                agent.setPriorityActions(PriorityActionsSnapshot.capture(player, requestId, options));
-                agent.prompt(PriorityPrompt.render(player, requestId));
+                try (var preparation = agent.profile().scope("preparation", "Capture priority options")) {
+                    agent.setPriorityActions(PriorityActionsSnapshot.capture(player, requestId, options));
+                }
+                agent.prompt(PriorityPrompt.render(player, requestId), requestId, "priority", "Choose priority action");
             } catch (RuntimeException e) {
                 Logger.error(e, "Could not request a priority decision for {}", player.getName());
             } finally {
                 agent.clearPriorityActions(requestId);
                 if (callback.cancel(requestId)) {
                     decision.complete(new PriorityDecision.Pass());
+                    agent.profile().fallback("Choose a priority action");
+                    fallbackRecorded = true;
+                    onLlmFallback("Choose a priority action");
                 }
             }
-            if (decision.join() instanceof PriorityDecision.PlayAction play) {
+            final var selected = decision.join();
+            if (selected instanceof PriorityDecision.PlayAction play) {
+                agent.profile().actionName(options.get(play).getDescription());
                 return List.of(options.get(play));
             }
         } catch (RuntimeException e) {
             Logger.error(e, "Could not choose a play for {}; passing priority", player.getName());
+            if (!fallbackRecorded) agent.profile().fallback("Choose a priority action: " + e.getMessage());
+            onLlmFallback("Choose a priority action: " + e.getMessage());
         }
         return null;
     }
 
     @Override
     public boolean playChosenSpellAbility(SpellAbility ability) {
+        if (agent == null || getGame().isSimulationCopy()) return executeChosenAbility(ability);
+        final var profile = agent.profile();
+        String outcome = "error";
+        try (var execution = profile.scope("execution", ability.getDescription())) {
+            final boolean played = executeChosenAbility(ability);
+            outcome = played ? "played" : passAfterFailedPlay ? "failed" : "canceled";
+            execution.data("outcome", outcome);
+            return played;
+        } finally {
+            profile.endAction(outcome);
+        }
+    }
+
+    private boolean executeChosenAbility(SpellAbility ability) {
         beginPriorityAction();
         try {
             boolean played = PlaySpellAbility.playSpellAbility(this, player, ability);

@@ -147,6 +147,7 @@ final class LlmCombat {
             }
             if (legal) return assignments;
         }
+        controller.onLlmFallback("Assign combat damage");
         return fallback.get();
     }
 }

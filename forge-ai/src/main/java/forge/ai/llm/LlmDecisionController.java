@@ -93,6 +93,13 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     private ChoiceDecision requestDecision(String title, List<String> labels, int min, int max, boolean repeat,
                                            boolean number, boolean cancellable, List<Boolean> manaSources) {
+        try (var timing = decisionAgent().profile().scope("decision", title)) {
+            return requestDecisionImpl(title, labels, min, max, repeat, number, cancellable, manaSources);
+        }
+    }
+
+    private ChoiceDecision requestDecisionImpl(String title, List<String> labels, int min, int max, boolean repeat,
+                                               boolean number, boolean cancellable, List<Boolean> manaSources) {
         final boolean canCancel = cancellable && preparingPriorityAction;
         var future = new CompletableFuture<ChoiceDecision>();
         var callback = decisionAgent().choiceDecision();
@@ -167,7 +174,9 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         }
         prompt.append("Submit exactly one choice, then finish your response. A text reply is not a decision.");
         try {
-            decisionAgent().prompt(prompt.toString());
+            final String kind = manaSources != null ? "payment" : number ? "number"
+                    : title.toLowerCase(java.util.Locale.ROOT).contains("target") ? "targeting" : "choice";
+            decisionAgent().prompt(prompt.toString(), id, kind, title);
         } catch (RuntimeException e) {
             Logger.warn(e, "LLM prompt failed for {}: {}", player, title);
         } finally {
@@ -226,6 +235,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
             title = title + "\nThe previous combination was illegal. Choose a different legal combination.";
         }
         Logger.warn("Using local fallback for {}: {}", player, title);
+        if (decisionAgent() != null) decisionAgent().profile().fallback(title);
         onLlmFallback(title);
         return locally(fallback);
     }
@@ -267,6 +277,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         SubmitChoice answer = request(title, List.of(), min, max, false, true, false);
         if (answer != null) return answer.value();
         Logger.warn("Using local numeric fallback for {}: {}", player, title);
+        if (decisionAgent() != null) decisionAgent().profile().fallback(title);
         onLlmFallback(title);
         return locally(fallback);
     }
@@ -443,6 +454,12 @@ abstract class LlmDecisionController extends PlayerControllerAi {
 
     @Override
     public CardCollectionView orderMoveToZoneList(CardCollectionView options, ZoneType destination, SpellAbility sa) {
+        if (sa != null && sa.getApi() == forge.game.ability.ApiType.RearrangeTopOfLibrary) {
+            // This effect authorizes looking at these library cards. Each selected card is inserted at index zero.
+            return withShown(options, () -> cards(context(sa, "Reorder the revealed library cards; "
+                            + "the LAST selected card will be on top, the first selected card deepest"), options,
+                    options.size(), options.size(), () -> super.orderMoveToZoneList(options, destination, sa)));
+        }
         return cards(context(sa, "Order cards moving to " + destination + "; first in the list moves first"), options,
                 options.size(), options.size(), () -> super.orderMoveToZoneList(options, destination, sa));
     }
