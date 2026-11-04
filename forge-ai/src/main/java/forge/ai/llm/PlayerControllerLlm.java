@@ -94,6 +94,11 @@ public class PlayerControllerLlm extends LlmDecisionController {
                 Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
             }
         }
+        return fallbackMulliganKeepHand(firstPlayer, cardsToReturn);
+    }
+
+    /** Override the fallback policy when a caller requires an actual model decision, such as a live eval. */
+    protected boolean fallbackMulliganKeepHand(Player firstPlayer, int cardsToReturn) {
         return super.mulliganKeepHand(firstPlayer, cardsToReturn);
     }
 

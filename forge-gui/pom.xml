@@ -121,4 +121,26 @@
         </plugins>
     </build>
 
+    <profiles>
+        <profile>
+            <id>llm-evals</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Live model calls are opt-in and replace this module's unit tests. -->
+                            <includes combine.self="override">
+                                <include>**/*Eval.java</include>
+                            </includes>
+                            <failIfNoTests>true</failIfNoTests>
+                            <forkedProcessTimeoutInSeconds>600</forkedProcessTimeoutInSeconds>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>
