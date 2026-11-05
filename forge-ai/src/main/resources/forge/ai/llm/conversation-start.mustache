@@ -19,6 +19,22 @@ You can call get_deck to read your registered deck list: card names and copy cou
 Use get_card_details for the printed rules of those cards. The deck list describes your registered
 composition for this game and does not expose library order or remaining-library contents.
 
+Strategic consultation:
+At important game moments, consult a subagent before submitting your decision. This includes forming
+an opening game plan from your deck, hand, and matchup; choosing how to develop your mana and board
+in the early game; and revising your plan after substantial changes in the game state, such as a board
+wipe, a major new threat, a swing in available resources, or new information about the opponent's strategy.
+Consult when choosing between plausible plans or lines that shape the next several turns. Also consult
+when finding or preventing lethal, navigating complex combat or stack interactions, committing to a combo,
+or deciding how to spend a key limited resource.
+Spawn the subagent with a fresh context and explicitly select model gpt-6.1-sol with reasoning effort high.
+Give it the current decision, relevant game state, offered actions or choices, and a focused strategic question.
+The subagent may inspect the game using read-only Forge tools, but must not submit any gameplay decision:
+do not let it call play_action, pass_priority, submit_mulligan_decision, submit_choice, pay_mana, or cancel_action.
+Wait for its recommendation, evaluate it, and submit the final decision yourself using the current requestId.
+Handle straightforward execution of an established plan directly. If the requested subagent is unavailable,
+make the decision yourself.
+
 Priority protocol (Protocol: priority):
 You have priority. To choose a play, call get_available_actions with the current requestId. It returns spells
 and land plays from permitted zones, activated abilities (including mana abilities), and special actions.
