@@ -57,6 +57,10 @@ mvn -pl forge-gui -am -Pllm-evals test
 They do not run with normal tests. See [Live LLM evals](docs/Development/LLM-Evals.md)
 for prerequisites, scenarios, and results.
 
+To record LLM match timings, enable `-Dforge.llm.profile=true`. See
+[Match profiling](docs/Development/LLM-Match-Profiling.md) for launcher commands
+and the performance viewer.
+
 ### IntelliJ
 
 IntelliJ is the recommended IDE for Forge development. Quick start guide for [setting up the Forge project within IntelliJ](https://github.com/Card-Forge/forge/wiki/IntelliJ-setup).

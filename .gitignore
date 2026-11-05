@@ -98,6 +98,9 @@ forge-gui/tools/PerSetTrackingResults
 __pycache__
 *.pyc
 
+# Opt-in match timing recordings
+**/logs/profiles/
+
 # Ignore Claude configuration
 .claude
 # EDHREC commander matrix tool intermediates

@@ -194,7 +194,7 @@ public class PriorityActionsShould {
             doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
                 final String id = requestId(prompt);
-                Assert.assertTrue(prompt.text().contains(GetAvailableActions.NAME));
+                Assert.assertTrue(prompt.text().contains("Protocol: priority (session instructions)."));
                 Assert.assertFalse(prompt.text().contains("Forest"), "Priority prompts must not contain the action list");
                 Assert.assertFalse(prompt.text().contains("cardId="));
                 Assert.assertTrue(session.mcp.callTool(session.list("wrong-request")).isError());
@@ -571,7 +571,7 @@ public class PriorityActionsShould {
             doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
                 final String id = requestId(prompt);
-                Assert.assertTrue(prompt.text().contains("You may call cancel_action"));
+                Assert.assertTrue(prompt.text().contains("Cancel action: allowed"));
                 Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
                         Map.of("requestId", "stale"))).isError());
                 if (step.getAndIncrement() < 2) {
@@ -693,7 +693,7 @@ public class PriorityActionsShould {
             final var count = new java.util.concurrent.atomic.AtomicInteger();
             doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
-                Assert.assertTrue(prompt.text().contains("You may call cancel_action"), prompt.text());
+                Assert.assertTrue(prompt.text().contains("Cancel action: allowed"), prompt.text());
                 Assert.assertFalse(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
                         Map.of("requestId", requestId(prompt)))).isError());
                 count.incrementAndGet();
@@ -716,7 +716,7 @@ public class PriorityActionsShould {
             doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
                 final String id = requestId(prompt);
-                Assert.assertFalse(prompt.text().contains("You may call cancel_action"));
+                Assert.assertTrue(prompt.text().contains("Cancel action: forbidden"));
                 Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
                         Map.of("requestId", id))).isError());
                 Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,

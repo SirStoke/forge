@@ -12,6 +12,8 @@
 dialog{position:fixed;inset:0 0 0 auto;margin:0;width:min(600px,100vw);height:100dvh;max-height:100dvh;max-width:100vw;border:0;border-left:1px solid var(--line);padding:0;color:var(--ink);background:#fbfcf8;box-shadow:-15px 0 70px #183e3420}dialog::backdrop{background:#102b2633}.detail-top{padding:24px 25px 0;background:white;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}.detail-heading{display:flex;gap:12px;align-items:start}.detail-heading h2{font-size:20px;letter-spacing:-.6px;margin:9px 0 12px;overflow-wrap:anywhere}.close{border:1px solid var(--line);background:white;border-radius:6px;width:30px;height:30px;display:grid;place-items:center;margin-left:auto;flex-shrink:0;font-size:18px}.detail-context{display:flex;gap:7px;flex-wrap:wrap;color:var(--muted);font:10px/1.9 var(--mono);margin-bottom:17px}.detail-context span{overflow-wrap:anywhere}.tabs{display:flex;gap:22px;align-items:center}.tab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 0;font-size:12px;color:var(--muted)}.tab[aria-selected=true]{border-color:var(--teal);color:var(--teal);font-weight:600}.tabs .button{margin-left:auto;margin-bottom:5px}.detail-body{padding:24px 25px 50px}.detail-body h3{font:10px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:22px 0 12px}.detail-body h3:first-child{margin-top:0}pre{font:11px/1.85 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;margin:0;background:#f2f5ee;border:1px solid var(--line);border-radius:7px;padding:15px}.prose{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.95}.detail-identity{font:10px/1.9 var(--mono);color:var(--muted);overflow-wrap:anywhere;margin-bottom:22px;background:#f1f4ed;padding:12px;border-radius:6px}.data-table-wrap{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:7px;background:white;margin:10px 0}table{border-collapse:collapse;width:100%;font-size:11px}td,th{text-align:left;padding:9px 11px;border-bottom:1px solid #e8ede5;vertical-align:top;max-width:350px;min-width:70px;overflow-wrap:anywhere}th{background:#f1f5ee;color:#617667;font-size:10px;font-weight:600}tr:last-child td{border-bottom:0}td.option-index{font:11px var(--mono);color:var(--teal);min-width:40px;width:40px}.data-object{margin:0}dt{font:10px var(--mono);color:var(--muted);margin-top:13px}dd{margin:3px 0 0;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.data-array>summary{font-size:12px;color:var(--teal);padding:10px 0;cursor:pointer}.data-array{margin:10px 0;border-top:1px solid var(--line)}.array-item{padding:0 11px 13px;border-left:2px solid var(--line);margin:8px 0}.small-note{font-size:10px;color:var(--muted)}.callout{padding:12px 14px;background:var(--gold-bg);font-size:11px;border-radius:6px;color:#8d682d;margin:15px 0}.error-detail{color:var(--red);background:var(--red-bg);border-radius:7px;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.8 var(--mono)}
 @media(min-width:1700px){.workspace{padding-left:50px;padding-right:50px}}@media(max-width:900px){.import-grid{gap:30px;grid-template-columns:1fr 1.2fr}.workspace-grid{grid-template-columns:190px minmax(0,1fr);gap:18px}.stat{padding:16px}.summary{grid-template-columns:minmax(150px,1fr) repeat(3,100px)}.header-actions .local{display:none}.brand-name small{font-size:12px;margin-left:8px;padding-left:8px}}@media(max-width:650px){.topbar{height:auto;min-height:68px;padding:14px 18px;align-items:start}.brand{gap:9px}.brand-mark{width:30px;height:30px}.brand-name{font-size:13px}.brand-name small{display:block;margin:0;padding:0;border:0;font-size:10px}.header-actions{gap:6px;justify-content:end}.header-actions .button{padding:7px 9px;font-size:10px}.importer{margin-top:28px;padding:0 18px}.import-grid{grid-template-columns:1fr;gap:16px}.intro{padding-top:0}.intro .eyebrow{margin-bottom:15px}h1{font-size:37px}.intro>p{font-size:14px}.feature-list{display:none}.input-card{padding:17px}textarea{min-height:235px}.workspace{padding:20px 18px 40px}.summary{grid-template-columns:repeat(3,1fr);margin-bottom:20px}.summary-source{grid-column:1/-1;border-bottom:1px solid var(--line);padding:13px 15px}.stat{padding:12px 15px}.stat:nth-child(2){border-left:0}.stat b{font-size:22px}.workspace-grid{grid-template-columns:1fr;gap:17px}.sidebar{position:static;display:flex;align-items:center;gap:11px;flex-wrap:wrap}.sidebar>label{margin:0}.sidebar select{flex:1;min-width:180px;width:auto}.nav-heading,.nav-list,.sidebar-note{display:none}.decision-jump{display:block;width:100%}.decision-jump select{width:100%}.toolbar{gap:7px}.search-wrap{flex-basis:100%}.kind-filter{flex:1}.toggle{padding:9px}.entry-open{padding:13px}.entry-time{font-size:9px}.decision-heading h2{font-size:12px}.decision-heading .decision-time{display:none}.detail-top{padding:20px 18px 0}.detail-body{padding:20px 18px 40px}.view-meta{font-size:10px}.footer-note{font-size:10px}}
 @media print{.topbar,.importer,.sidebar,.toolbar,.view-meta,.footer-note,.header-actions,dialog,.toast{display:none!important}.workspace{padding:0}.workspace-grid{display:block}.summary,.entry{box-shadow:none;break-inside:avoid}.entry-preview{-webkit-line-clamp:unset;display:block}.entry-open{padding:12px}.entry-foot .inspect{display:none}}
+
+.profile-workspace{max-width:1300px;margin:30px auto;padding:0 24px 50px}.profile-workspace h2{font-size:17px;margin:30px 0 12px}.profile-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin:20px 0}.profile-metric{background:white;border:1px solid var(--line);border-radius:8px;padding:15px}.profile-metric strong{display:block;font-size:24px}.profile-metric span{font-size:11px;color:var(--muted)}.profile-span{margin:7px 0 7px calc(var(--depth)*12px);padding:12px;background:white;border:1px solid var(--line);border-radius:7px}.profile-span summary{cursor:pointer;list-style:none}.profile-span-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.profile-span-head strong{font-size:12px;flex:1;overflow-wrap:anywhere}.profile-span-head>span:last-child{font:11px var(--mono)}.profile-track{height:12px;margin-top:7px;background:#f1f4ed;border-radius:3px;position:relative}.profile-bar{position:absolute;height:100%;background:#759b8c;border-radius:3px;min-width:2px}.profile-bar.request,.profile-bar.agent_wait{background:var(--teal)}.profile-bar.tool{background:#7194ba}.profile-bar i{position:absolute;right:0;top:0;height:100%;background:#d7a24c;border-radius:3px}.profile-span pre{margin-top:15px}.profile-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.profile-controls select,.profile-controls input[type=search]{padding:10px;border:1px solid var(--line);border-radius:5px}.profile-controls input[type=search]{flex:1;min-width:180px}
 </style>
 </head>
 <body>
@@ -19,15 +21,22 @@ dialog{position:fixed;inset:0 0 0 auto;margin:0;width:min(600px,100vw);height:10
 <main>
 <section class="importer" id="importer" aria-label="Import a conversation">
 <div class="import-grid"><div class="intro"><span class="eyebrow">From raw logs to readable decisions</span><h1>Follow the game.<br><em>Understand the agent.</em></h1><p>Turn a Forge conversation log into a clear timeline of prompts, responses and tool calls.</p><ul class="feature-list"><li>Jump between sessions and decisions</li><li>Pair tool calls with their results</li><li>Inspect choices, payments and errors</li></ul></div>
-<div class="input-card"><div class="input-heading"><h2>Paste your conversation log</h2><span>.log / .txt</span></div><label for="log-input" class="sr-only">Conversation log text</label><textarea id="log-input" spellcheck="false" placeholder="2026-11-02 10:04:21.000 [ACP session-id] USER:&#10;You are playing as One.&#10;Request ID: …&#10;Decision: Pay remaining mana {R}&#10;&#10;2026-11-02 10:04:23.000 [MCP invocation-id] TOOL CALL submit_choice:&#10;{requestId=…, choices=[0]}"></textarea><p class="input-note">Paste from <code>logs/llm-conversation.log</code> or the console. Everything stays in this browser tab. No upload, account or connection needed.</p><div class="actions"><button class="button primary" id="parse">Open conversation <span aria-hidden="true">↗</span></button><button class="button" id="open-file">Open file</button><button class="text-button" id="demo">Try an example</button><button class="text-button" id="cancel-edit" hidden>Cancel edit</button></div><div class="notice" id="import-status" role="status" hidden></div><div class="drop-hint">You can also drop a log file anywhere on this page.</div></div></div>
+<div class="input-card"><div class="input-heading"><h2>Paste a conversation log or match profile</h2><span>.log / .txt / .jsonl</span></div><label for="log-input" class="sr-only">Conversation log text</label><textarea id="log-input" spellcheck="false" placeholder="2026-11-02 10:04:21.000 [ACP session-id] USER:&#10;You are playing as One.&#10;Request ID: …&#10;Decision: Pay remaining mana {R}&#10;&#10;2026-11-02 10:04:23.000 [MCP invocation-id] TOOL CALL submit_choice:&#10;{requestId=…, choices=[0]}"></textarea><p class="input-note">Paste from <code>logs/llm-conversation.log</code> or a <code>logs/profiles/*.jsonl</code> performance recording. Everything stays in this browser tab. No upload, account or connection needed.</p><div class="actions"><button class="button primary" id="parse">Open conversation <span aria-hidden="true">↗</span></button><button class="button" id="open-file">Open file</button><button class="text-button" id="demo">Try an example</button><button class="text-button" id="cancel-edit" hidden>Cancel edit</button></div><div class="notice" id="import-status" role="status" hidden></div><div class="drop-hint">You can also drop a log file anywhere on this page.</div></div></div>
 </section>
 <section class="workspace" id="workspace" aria-label="Conversation timeline" hidden>
 <div class="summary"><div class="summary-source"><span class="eyebrow">Conversation loaded</span><div class="summary-title" id="source-name"></div><small id="source-meta"></small></div><div class="stat"><b id="decision-count">0</b><span>decisions</span></div><div class="stat"><b id="tool-count">0</b><span>tool calls</span></div><div class="stat"><b class="red" id="error-count">0</b><span>tool errors</span></div></div>
 <div class="workspace-grid"><aside class="sidebar" aria-label="Conversation navigation"><label class="field-label" for="session-filter">Session</label><select id="session-filter"></select><div class="nav-heading"><span class="field-label">Decisions</span><button class="text-button" id="all-decisions">Show all</button></div><div class="nav-list" id="decision-nav"></div><div class="decision-jump"><label for="decision-jump" class="sr-only">Jump to a decision</label><select id="decision-jump"></select></div><p class="sidebar-note">Tool calls are linked by request ID when possible. Other session links are marked as inferred.</p></aside>
 <div class="content"><div class="toolbar"><label class="search-wrap"><span class="sr-only">Search conversation</span><input class="search" id="search" type="search" placeholder="Search a card, tool, request ID or message…" autocomplete="off"></label><label class="sr-only" for="kind-filter">Entry type</label><select class="kind-filter" id="kind-filter"><option value="all">All entries</option><option value="prompt">Prompts</option><option value="agent">Agent messages</option><option value="tool">Tool calls</option><option value="error">Errors only</option></select><button class="toggle" id="thoughts" aria-pressed="false">Show thoughts</button></div><div class="view-meta"><span id="view-count" role="status"></span><div><button class="text-button" id="reset-filters">Reset filters</button><button class="text-button" id="latest">Latest decision ↓</button></div></div><div id="parse-notice" class="notice" hidden></div><div id="timeline"></div><button class="button load-more" id="load-more" hidden>Show more entries</button><p class="footer-note">Open any entry to inspect its complete contents and original log text. Entries are grouped by decision; timestamps come from the source log. A missing tool result means it was not present in the pasted text. Logs are held in memory and cleared when this page is reloaded.</p></div></div>
 </section>
+<section id="profile-workspace" class="profile-workspace" aria-label="Match performance" hidden>
+<span class="eyebrow">Match performance</span><h1 id="profile-title" style="font-size:30px"></h1><p id="profile-meta"></p>
+<p class="small-note">Agent wait includes transport and remote processing. Other match time includes human input, UI waits, unmeasured work and gaps; it is not an engine CPU measurement. Sizes count bytes sent in this request, not the full accumulated conversation. Token counts are not recorded.</p>
+<div id="profile-warning" class="notice" hidden></div>
+<div class="profile-controls"><label for="profile-session" class="sr-only">LLM player</label><select id="profile-session"></select><label for="profile-search" class="sr-only">Search performance spans</label><input id="profile-search" type="search" placeholder="Filter by decision, turn, phase or outcome…"><label><input id="profile-tools" type="checkbox"> Show tools and local steps</label></div>
+<div id="profile-report"></div><h2>Match timeline</h2><p class="small-note" id="profile-count" role="status"></p><div id="profile-timeline"></div><button id="profile-more" class="button load-more" hidden>Show more spans</button>
+</section>
 </main>
-<input type="file" id="file-input" accept=".log,.txt,text/plain" hidden>
+<input type="file" id="file-input" accept=".log,.txt,.jsonl,text/plain,application/json" hidden>
 <div class="drop-overlay" id="drop-overlay" hidden>Drop a conversation log</div>
 <dialog id="inspector" aria-labelledby="detail-title"><div class="detail-top"><div class="detail-heading"><div><span class="eyebrow" id="detail-kind"></span><h2 id="detail-title"></h2></div><button class="close" id="close-detail" aria-label="Close entry details">×</button></div><div class="detail-context" id="detail-context"></div><div class="tabs" role="tablist" aria-label="Entry view"><button class="tab" id="tab-formatted" role="tab" aria-selected="true" aria-controls="detail-body">Formatted</button><button class="tab" id="tab-raw" role="tab" aria-selected="false" aria-controls="detail-body">Raw source</button><button class="button small" id="copy-entry">Copy source</button></div></div><div class="detail-body" id="detail-body" role="tabpanel" aria-labelledby="tab-formatted"></div></dialog>
 <div class="toast" id="toast" role="status" hidden></div>
@@ -39,7 +48,7 @@ const $ = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const countLabel = (count, noun) => count.toLocaleString()+' '+noun+(count===1?'':'s');
 const short = (text, max=110) => String(text ?? '').length > max ? String(text).slice(0,max-1)+'…' : String(text ?? '');
-const state = { model:null, source:'Pasted conversation', session:'all', group:null, query:'', kind:'all', thoughts:false, limit:120, selected:null, raw:false, navLimit:200 };
+const state = { profile:null, profileLimit:150, model:null, source:'Pasted conversation', session:'all', group:null, query:'', kind:'all', thoughts:false, limit:120, selected:null, raw:false, navLimit:200 };
 
 function timestamp(text) {
  const match = text.match(/\b(\d{4}-\d\d-\d\d[ T])?(\d\d:\d\d:\d\d(?:\.\d{1,3})?)/);
@@ -260,11 +269,13 @@ function resetFilters() {
 }
 function loadLog(text,source='Pasted conversation') {
  $('import-status').hidden=true;
+ if(text.trim().startsWith('{'))return loadProfile(text,source);
  const model=parseLog(text);
  if(!model.records.length) {
   $('import-status').textContent=text.trim()?'No Forge ACP/MCP entries found. Paste a log containing “[ACP session-id] USER:” or “[MCP invocation-id] TOOL CALL tool_name:”. Plain file logs and console-prefixed logs are supported.':'Paste a conversation log or open a log file first.';
-  $('import-status').classList.add('error');$('import-status').hidden=false;$('importer').hidden=false;if(state.model)$('importer').classList.add('editing');window.scrollTo({top:0});return false;
+  $('import-status').classList.add('error');$('import-status').hidden=false;$('importer').hidden=false;if(state.model||state.profile)$('importer').classList.add('editing');window.scrollTo({top:0});return false;
  }
+ state.profile=null;$('profile-workspace').hidden=true;
  if($('inspector').open)$('inspector').close();$('detail-body').replaceChildren();
  state.model=model;state.source=source;state.session='all';state.group=null;state.selected=null;state.navLimit=200;
  $('log-input').value=text;$('source-name').textContent=source;
@@ -343,22 +354,177 @@ async function copy(text) {
  try {await navigator.clipboard.writeText(text);toast('Source copied');}
  catch {const input=document.createElement('textarea');input.value=text;input.style.cssText='position:fixed;opacity:0;';($('inspector').open?$('inspector'):document.body).append(input);input.select();const copied=document.execCommand('copy');input.remove();toast(copied?'Source copied':'Copy unavailable. Select the raw source to copy it.');}
 }
+// Profile files contain timing metadata, never executable content.
+function parseProfile(text) {
+ const lines=text.replace(/^\uFEFF/,'').trim().split(/\r?\n/),events=[];let truncated=false;
+ lines.forEach((line,index)=>{
+  if(!line.trim())return;
+  let record;
+  try {record=JSON.parse(line);} catch {
+   if(index===lines.length-1&&events.length){truncated=true;return;}
+   throw Error('Invalid JSON on profile line '+(index+1));
+  }
+  if(!record||typeof record!=='object'||!Number.isFinite(record.atMs)||record.atMs<0)throw Error('Invalid timestamp on profile line '+(index+1));
+  events.push(record);
+ });
+ const meta=events[0];
+ if(meta?.event!=='match_start'||meta.format!=='forge.llm.profile'||meta.version!==1)throw Error('Unsupported Forge profile format or version.');
+ const byId=new Map();
+ for(const event of events) {
+  if(event.event==='span_start') {
+   if(typeof event.id!=='string'||byId.has(event.id)||typeof event.kind!=='string'||typeof event.name!=='string'||!Number.isFinite(event.startMs)||event.startMs<0)throw Error('Invalid or duplicate profile span.');
+   byId.set(event.id,{...event,complete:false});
+  } else if(event.event==='span_end') {
+   if(!Number.isFinite(event.durationMs)||event.durationMs<0)throw Error('Invalid profile duration.');
+   const span=byId.get(event.id);
+   if(span)Object.assign(span,event,{complete:true});
+  }
+ }
+ const end=events.find(e=>e.event==='match_end');
+ const elapsed=end?.atMs??events.reduce((max,e)=>Math.max(max,e.atMs),0);
+ const spans=[...byId.values()].sort((a,b)=>a.startMs-b.startMs);
+ return {meta,events,spans,byId,elapsed,partial:!end||end.reason==='application_exit'||truncated||spans.some(s=>!s.complete),truncated};
+}
+function profileUnion(spans) {
+ const ranges=spans.filter(s=>s.complete).map(s=>[s.startMs,s.startMs+s.durationMs]).sort((a,b)=>a[0]-b[0]);
+ let total=0,start=0,end=0;
+ for(const [a,b] of ranges){if(a>end){total+=end-start;start=a;end=b;}else end=Math.max(end,b);}
+ return total+end-start;
+}
+function profileStats(spans) {
+ const values=spans.filter(s=>s.complete).map(s=>s.durationMs).sort((a,b)=>a-b);
+ const percentile=p=>values.length?values[Math.max(0,Math.ceil(p*values.length)-1)]:null;
+ return {count:values.length,total:values.reduce((a,b)=>a+b,0),median:percentile(.5),p95:percentile(.95),max:values.at(-1)??null};
+}
+function profileAncestor(span,kind,model) {
+ const seen=new Set();let current=span;
+ while(current?.parentId&&!seen.has(current.parentId)){
+  seen.add(current.parentId);current=model.byId.get(current.parentId);
+  if(current?.kind===kind)return current;
+ }
+ return null;
+}
+function profileSummary(model,spans=model.spans) {
+ const waits=spans.filter(s=>s.kind==='agent_wait'),tools=spans.filter(s=>s.kind==='tool');
+ const requests=spans.filter(s=>s.kind==='request');
+ const local=spans.filter(s=>['preparation','execution','decision'].includes(s.kind));
+ // Local execution encloses requests: subtract the union of all waits/tools rather than summing nested spans.
+ const covered=profileUnion([...local,...waits,...tools]);
+ const waiting=profileUnion(waits);
+ const toolTime=profileUnion(tools);
+ return {requests:profileStats(requests),waiting,toolTime,local:Math.max(0,covered-profileUnion([...waits,...tools])),
+  startup:profileUnion(spans.filter(s=>s.kind==='startup')),
+  other:Math.max(0,model.elapsed-profileUnion([...model.spans.filter(s=>s.kind==='startup'),...local,...waits,...tools])),
+  after:requests.filter(s=>s.complete&&Number.isFinite(s.afterDecisionMs)).reduce((n,s)=>n+s.afterDecisionMs,0),
+  errors:tools.filter(s=>s.outcome==='error').length,
+  unanswered:requests.filter(s=>s.outcome==='unanswered'||s.outcome==='error').length,
+  fallbacks:model.events.filter(e=>e.event==='fallback').length};
+}
+function profileDuration(ms) {
+ if(ms===null||ms===undefined)return '—';
+ if(ms<1000)return ms.toFixed(ms<10?1:0)+' ms';
+ if(ms<60000)return (ms/1000).toFixed(2)+' s';
+ return (ms/60000).toFixed(2)+' min';
+}
+function profileTable(headers,rows) {
+ return '<div class="data-table-wrap"><table><thead><tr>'+headers.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map(cell=>'<td>'+escapeHtml(cell)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
+}
+function profileGroups(spans,key) {
+ const groups=new Map();
+ for(const span of spans){const name=key(span);if(!groups.has(name))groups.set(name,[]);groups.get(name).push(span);}
+ return [...groups].sort((a,b)=>profileStats(b[1]).total-profileStats(a[1]).total);
+}
+function profileReport(model,spans) {
+ const summary=profileSummary(model,spans),requests=spans.filter(s=>s.kind==='request');
+ const rows=profileGroups(requests,s=>s.decisionType||'unfinished').map(([name,items])=>{
+  const stats=profileStats(items);return [name,stats.count,profileDuration(stats.total),profileDuration(stats.median),profileDuration(stats.p95),profileDuration(stats.max),profileDuration(items.reduce((n,s)=>n+(s.afterDecisionMs||0),0))];
+ });
+ const byTurn=profileGroups(requests,s=>'Turn '+(s.turn??'?')+' · '+(s.phase||'setup')).map(([name,items])=>[name,profileStats(items).count,profileDuration(profileStats(items).total),profileDuration(profileStats(items).median),profileDuration(profileStats(items).p95),Math.round(items.reduce((n,s)=>n+(s.promptBytes||0),0)/1024)+' KB']);
+ const tools=profileGroups(spans.filter(s=>s.kind==='tool'),s=>s.name).map(([name,items])=>{
+  const stats=profileStats(items);return [name,stats.count,profileDuration(stats.total),profileDuration(stats.p95),items.filter(s=>s.outcome==='error').length,Math.round(items.reduce((n,s)=>n+(s.responseBytes||0),0)/1024)+' KB'];
+ });
+ const actions=spans.filter(s=>s.kind==='action'&&s.complete).sort((a,b)=>b.durationMs-a.durationMs).slice(0,10).map(action=>{
+  const children=requests.filter(r=>profileAncestor(r,'action',model)?.id===action.id);
+  return [action.name,action.player||'',action.turn??'',action.outcome||'',profileDuration(action.durationMs),children.length,profileDuration(children.reduce((n,s)=>n+(s.afterDecisionMs||0),0))];
+ });
+ return '<div class="profile-metrics">'+[
+  ['Agent / transport wait',summary.waiting],['Local work measured',summary.local],['Tools (inside agent wait)',summary.toolTime],
+  ['After decision accepted',summary.after],['Startup (includes requests)',summary.startup]
+ ].map(([label,value])=>'<div class="profile-metric"><strong>'+profileDuration(value)+'</strong><span>'+escapeHtml(label)+'</span></div>').join('')+'</div>'
+ +'<p class="small-note">'+summary.requests.count+' completed requests · '+summary.errors+' tool errors · '+summary.unanswered+' unanswered / failed requests. These categories overlap: tools and completion delay are inside agent wait; startup includes its opening request. First activity means the first streamed message or thought, not a measured first token.</p>'
+ +'<h2>Requests by decision type</h2>'+profileTable(['Decision','Count','Total','Median','p95','Slowest','After decision'],rows)
+ +'<h2>Slowest complete actions</h2>'+profileTable(['Action','Player','Turn','Outcome','Duration','Requests','After decision'],actions)
+ +'<h2>Slowest requests</h2>'+profileTable(['Decision','Player','Turn','Phase','Duration','First activity','After decision','Tools','Outcome'],requests.filter(s=>s.complete).sort((a,b)=>b.durationMs-a.durationMs).slice(0,10).map(s=>[s.name,s.player||'',s.turn??'',s.phase||'',profileDuration(s.durationMs),profileDuration(s.firstActivityMs),profileDuration(s.afterDecisionMs),s.toolCount??0,s.outcome||'']))
+ +'<h2>Requests by turn and phase</h2>'+profileTable(['Turn / phase','Count','Total','Median','p95','Prompt size'],byTurn)
+ +'<h2>Tools</h2>'+profileTable(['Tool','Count','Total','p95','Errors','Response size'],tools);
+}
+function profileTimeline(model,spans,limit=150) {
+ const scale=Math.max(1,model.elapsed);
+ return spans.slice(0,limit).map(span=>{
+  const duration=span.complete?span.durationMs:Math.max(0,model.elapsed-span.startMs);
+  const left=Math.min(100,span.startMs/scale*100),width=Math.min(100-left,Math.max(.15,duration/scale*100));
+  const delayed=span.complete&&Number.isFinite(span.afterDecisionMs)&&duration>0?Math.max(0,Math.min(100,span.afterDecisionMs/duration*100)):0;
+  const level=span.kind==='tool'?3:span.kind==='request'||span.kind==='execution'?1:span.kind==='agent_wait'||span.kind==='preparation'?2:0;
+  return '<details class="profile-span" style="--depth:'+level+'"><summary><div class="profile-span-head"><span class="chip">'+escapeHtml(span.kind)+'</span><strong>'+escapeHtml(short(span.name,110))+'</strong><span>'+profileDuration(span.complete?duration:null)+(span.complete?'':' · unfinished')+'</span></div><div class="small-note">'+escapeHtml([span.player,'Turn '+(span.turn??'?'),span.phase,'+'+profileDuration(span.startMs),span.outcome].filter(Boolean).join(' · '))+'</div><div class="profile-track"><span class="profile-bar '+escapeHtml(span.kind)+'" style="left:'+left+'%;width:'+width+'%"><i style="width:'+delayed+'%"></i></span></div></summary><pre>'+escapeHtml(JSON.stringify(span,null,2))+'</pre></details>';
+ }).join('');
+}
+function profilePlayerKey(span) {return span.playerId!==undefined?'player:'+span.playerId:'session:'+(span.sessionId||'');}
+function renderProfile() {
+ const model=state.profile;if(!model)return;
+ const session=$('profile-session').value,query=$('profile-search').value.trim().toLowerCase();
+ const spans=model.spans.filter(s=>(session==='all'||profilePlayerKey(s)===session)&&(!query||[s.name,s.requestId,s.kind,s.turn,s.phase,s.outcome].join(' ').toLowerCase().includes(query)));
+ $('profile-report').innerHTML=profileReport(model,spans);
+ const kinds=$('profile-tools').checked?null:new Set(['action','decision','request','startup','execution']);
+ const visible=spans.filter(s=>!kinds||kinds.has(s.kind));
+ $('profile-timeline').innerHTML=profileTimeline(model,visible,state.profileLimit);
+ $('profile-count').textContent='Showing '+Math.min(visible.length,state.profileLimit)+' of '+visible.length+' spans · orange marks time after a decision was accepted';
+ $('profile-more').hidden=visible.length<=state.profileLimit;
+}
+function loadProfile(text,source) {
+ let model;
+ try {model=parseProfile(text);}catch(error){$('import-status').textContent=error.message;$('import-status').hidden=false;$('import-status').classList.add('error');$('importer').hidden=false;if(state.model||state.profile)$('importer').classList.add('editing');window.scrollTo({top:0});return false;}
+ state.profile=model;state.model=null;state.selected=null;state.source=source;state.profileLimit=150;
+ if($('inspector').open)$('inspector').close();
+ $('workspace').hidden=true;$('profile-workspace').hidden=false;$('importer').hidden=true;
+ $('log-input').value=text;
+ for(const id of ['edit-log','export','clear'])$(id).hidden=false;
+ $('profile-title').textContent=source;
+ const all=profileSummary(model);
+ $('profile-meta').textContent=(model.partial?'Partial recording':'Completed recording')+' · '+model.meta.startedAt+' · '+profileDuration(model.elapsed)+' elapsed · '+profileDuration(all.other)+' other match time · '+all.fallbacks+' fallbacks';
+ $('profile-warning').hidden=!model.partial;
+ $('profile-warning').textContent='This recording is incomplete. Open spans have unknown end times and are excluded from duration statistics. Observed elapsed time is used for the timeline.';
+ const sessions=new Map(model.spans.filter(s=>s.playerId!==undefined||s.sessionId).map(s=>[profilePlayerKey(s),s]));
+ $('profile-session').innerHTML='<option value="all">All LLM players</option>'+[...sessions].map(([id,s])=>'<option value="'+escapeHtml(id)+'">'+escapeHtml((s.player||id)+' · '+s.model+' / '+s.reasoningEffort)+'</option>').join('');
+ $('profile-search').value='';$('profile-tools').checked=false;
+ renderProfile();window.scrollTo({top:0});return true;
+}
+
 async function openFile(file) {
  try {const text=await file.text();loadLog(text,file.name);}
  catch {toast('Could not read that file. Try pasting its text.');}
 }
-$('parse').addEventListener('click',()=>loadLog($('log-input').value,state.model?state.source:'Pasted conversation'));
+$('parse').addEventListener('click',()=>loadLog($('log-input').value,state.model||state.profile?state.source:'Pasted log or profile'));
+$('profile-session').addEventListener('change',()=>{state.profileLimit=150;renderProfile();});
+$('profile-search').addEventListener('input',()=>{state.profileLimit=150;renderProfile();});
+$('profile-tools').addEventListener('change',()=>{state.profileLimit=150;renderProfile();});
+$('profile-more').addEventListener('click',()=>{state.profileLimit+=150;renderProfile();});
+
 $('open-file').addEventListener('click',()=>$('file-input').click());
 $('file-input').addEventListener('change',event=>{if(event.target.files[0])openFile(event.target.files[0]);event.target.value='';});
 $('log-input').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter')$('parse').click();});
 $('edit-log').addEventListener('click',()=>{$('importer').hidden=false;$('importer').classList.add('editing');$('cancel-edit').hidden=false;$('importer').scrollIntoView({behavior:'smooth'});$('log-input').focus();});
 $('cancel-edit').addEventListener('click',()=>{$('importer').hidden=true;});
 $('clear').addEventListener('click',()=>{
- if($('inspector').open)$('inspector').close();state.model=null;state.selected=null;state.source='Pasted conversation';
+ if($('inspector').open)$('inspector').close();state.model=null;state.profile=null;$('profile-workspace').hidden=true;state.selected=null;state.source='Pasted conversation';
+ for(const id of ['profile-report','profile-timeline','profile-session','profile-meta','profile-title','profile-count'])$(id).replaceChildren();
  $('toast').hidden=true;clearTimeout(toastTimer);$('log-input').value='';$('importer').hidden=false;$('importer').classList.remove('editing');$('workspace').hidden=true;$('timeline').replaceChildren();$('decision-nav').replaceChildren();$('detail-body').replaceChildren();$('import-status').hidden=true;
  for(const id of ['edit-log','export','clear','cancel-edit'])$(id).hidden=true;window.scrollTo({top:0});
 });
 $('export').addEventListener('click',()=>{
+ if(state.profile){
+  const url=URL.createObjectURL(new Blob([state.profile.events.map(e=>JSON.stringify(e)).join('\n')+'\n'],{type:'application/x-ndjson'}));
+  const a=document.createElement('a');a.href=url;a.download='forge-match-profile.jsonl';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;
+ }
  if(!state.model)return;
  const {records,preamble}=state.model;
  const output={source:state.source,preamble,records,entries:state.model.entries.map(({search,...entry})=>entry),groups:state.model.groups.map(({entries,prompt,...group})=>({...group,entryKeys:entries.map(e=>e.key)}))};

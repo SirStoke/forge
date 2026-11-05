@@ -73,6 +73,8 @@ public class BulkManaPaymentShould {
                     activation(s, prompt, "Second blue"), activation(s, prompt, "Extra Mountain"))));
             Assert.assertTrue(s.controller.playChosenSpellAbility(spell.getSpellAbilities().get(0)));
             Assert.assertEquals(s.prompts.size(), 1, "One batch must replace all source/spending turns");
+            Assert.assertTrue(s.prompts.get(0).contains("Payment: pay_mana"));
+            Assert.assertTrue(s.prompts.get(0).contains("Cancel action: allowed"));
             Assert.assertTrue(r1.isTapped() && r2.isTapped() && u1.isTapped() && u2.isTapped());
             Assert.assertFalse(extra.isTapped());
             Assert.assertEquals(s.game.getStack().peek().getSpellAbility().getPayingMana().size(), 4);
@@ -224,6 +226,7 @@ public class BulkManaPaymentShould {
             s.prompts.clear();
             answer(s, prompt -> {
                 Assert.assertTrue(s.mcp.callTool(plan(s, prompt, List.of(Map.of("option", 0)))).isError(), "Not a mana prompt");
+                Assert.assertFalse(prompt.contains("Payment: pay_mana"));
                 return new CallToolRequest(SubmitChoice.NAME, Map.of("requestId", s.id(prompt), "value", 1));
             });
             Assert.assertEquals(s.controller.chooseNumber(null, "Effect number", 0, 2), 1);

@@ -95,7 +95,7 @@ public class CodexAcpAgentShould {
             Assert.assertEquals(mcp.name(), "mtg-forge");
             Assert.assertTrue(mcp.url().matches("http://127\\.0\\.0\\.1:[0-9]+/mcp"));
             order.verify(client).setSessionConfigOption(
-                    SetSessionConfigOptionRequest.select("test-session", "model", "gpt-6.1-sol"));
+                    SetSessionConfigOptionRequest.select("test-session", "model", CodexAcpAgent.MODEL));
             order.verify(client).setSessionConfigOption(
                     SetSessionConfigOptionRequest.select("test-session", "reasoning_effort", "low"));
             final ArgumentCaptor<PromptRequest> opening = ArgumentCaptor.forClass(PromptRequest.class);
@@ -105,6 +105,10 @@ public class CodexAcpAgentShould {
             Assert.assertTrue(opening.getValue().text().contains("complete list of MCP tools exposed by mtg-forge"));
             Assert.assertTrue(opening.getValue().text().contains("resolve any deferred tools"));
             Assert.assertTrue(opening.getValue().text().contains("follow all pagination"));
+            Assert.assertTrue(opening.getValue().text().contains("Priority protocol (Protocol: priority)"));
+            Assert.assertTrue(opening.getValue().text().contains("Choice protocol (Protocol: choice)"));
+            Assert.assertTrue(opening.getValue().text().contains("Payment: pay_mana"));
+            Assert.assertTrue(opening.getValue().text().contains("affordability is not"));
             verifyNoMoreInteractions(client);
         } finally {
             agent.close();

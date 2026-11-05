@@ -292,6 +292,8 @@ public class GameplayChoicesShould {
             doAnswer(invocation -> {
                 String prompt = ((PromptRequest) invocation.getArgument(0)).text();
                 String id = s.id(prompt);
+                Assert.assertTrue(prompt.contains("Protocol: choice (session instructions)."));
+                Assert.assertTrue(prompt.contains("Answer: choices\nCount: 1..1\nRepetition: forbidden"));
                 if (previous.get() != null) {
                     Assert.assertTrue(s.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
                             Map.of("requestId", previous.get(), "choices", List.of(0)))).isError());
@@ -343,6 +345,8 @@ public class GameplayChoicesShould {
             Assert.assertEquals(s.player.getLife(), 18);
             doAnswer(invocation -> {
                 String prompt = ((PromptRequest) invocation.getArgument(0)).text();
+                Assert.assertTrue(prompt.contains("Answer: value\nRange: 1..5"));
+                Assert.assertTrue(prompt.contains("Cancel action: forbidden"));
                 Assert.assertTrue(s.mcp.callTool(new CallToolRequest(SubmitChoice.NAME, Map.of("requestId", s.id(prompt), "value", 9))).isError());
                 Assert.assertFalse(s.mcp.callTool(new CallToolRequest(SubmitChoice.NAME, Map.of("requestId", s.id(prompt), "value", 3))).isError());
                 return null;

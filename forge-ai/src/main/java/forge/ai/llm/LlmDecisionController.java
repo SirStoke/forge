@@ -140,7 +140,8 @@ abstract class LlmDecisionController extends PlayerControllerAi {
                     : "Choice accepted. Finish this response so Forge can continue.";
         });
         StringBuilder prompt = new StringBuilder("You are playing as ").append(player.getName())
-                .append(".\nRequest ID: ").append(id).append("\nDecision: ").append(title).append('\n');
+                .append(".\nRequest ID: ").append(id).append("\nDecision: ").append(title)
+                .append("\nProtocol: choice (session instructions).\n");
         prompt.append("Phase: ").append(getGame().getPhaseHandler().getPhase()).append('\n');
         for (Player p : getGame().getPlayers()) {
             prompt.append("Player: ").append(describe(p)).append(" counters=").append(p.getCounters())
@@ -152,27 +153,16 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         }
         notices.clear();
         if (number) {
-            prompt.append("Choose an integer from ").append(min).append(" to ").append(max)
-                    .append(". Call submit_choice with requestId and value.\n");
+            prompt.append("Answer: value\nRange: ").append(min).append("..").append(max).append('\n');
         } else {
-            prompt.append("Choose ").append(min).append("..").append(max)
-                    .append(" options in the requested order. Repetition ").append(repeat ? "allowed" : "forbidden")
-                    .append(". Call submit_choice with requestId and choices (option indices).\n");
-            for (int i = 0; i < labels.size(); i++) {
-                prompt.append(i).append(": ").append(labels.get(i)).append('\n');
-            }
+            prompt.append("Answer: choices\nCount: ").append(min).append("..").append(max)
+                    .append("\nRepetition: ").append(repeat ? "allowed" : "forbidden").append('\n');
         }
-        if (manaSources != null) {
-            prompt.append("For bulk payment, call pay_mana with this requestId and steps: an ordered array of {option: index, colors: [optional W/U/B/R/G/C production choices]}.\n")
-                    .append("Example: steps:[{option:0},{option:2}] activates/spends options 0 then 2 in one response. Each activated source's newly produced eligible mana is spent automatically; pre-existing floating mana is spent only if selected.\n")
-                    .append("Stop when paid; surplus mana stays in the pool and later sources are not activated. Steps may repeat only while still legal. Missing choices or unavailable steps can prompt again.\n")
-                    .append("Use submit_choice for one manual step, or pay_mana for the batch; submit exactly one tool decision.\n");
+        if (manaSources != null) prompt.append("Payment: pay_mana\n");
+        prompt.append("Cancel action: ").append(canCancel ? "allowed" : "forbidden").append('\n');
+        for (int i = 0; i < labels.size(); i++) {
+            prompt.append(i).append(": ").append(labels.get(i)).append('\n');
         }
-        if (canCancel) {
-            prompt.append("You may call cancel_action with requestId \"").append(id)
-                    .append("\" instead to cancel this action without passing priority.\n");
-        }
-        prompt.append("Submit exactly one choice, then finish your response. A text reply is not a decision.");
         try {
             final String kind = manaSources != null ? "payment" : number ? "number"
                     : title.toLowerCase(java.util.Locale.ROOT).contains("target") ? "targeting" : "choice";
