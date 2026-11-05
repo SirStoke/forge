@@ -83,12 +83,13 @@ public class PlayerControllerLlm extends LlmDecisionController {
                 final var callback = agent.mulliganDecision();
                 final String requestId = callback.register(keep -> {
                     // MCP runs on another thread; publish the choice without touching the game.
+                    agent.profile().accepted("submit_mulligan_decision");
                     decision.complete(keep);
                     return "Mulligan decision accepted.";
                 });
                 try {
                     agent.prompt(MulliganPrompt.render(player, firstPlayer, cardsToReturn, requestId),
-                            requestId, "mulligan", "Mulligan");
+                            requestId, "mulligan", "Mulligan", decision);
                 } catch (RuntimeException e) {
                     Logger.error(e, "Could not request a mulligan decision for {}", player.getName());
                 } finally {
@@ -160,14 +161,15 @@ public class PlayerControllerLlm extends LlmDecisionController {
                 throw new IllegalArgumentException("Choose a cardId and abilityId pair returned by get_available_actions, or pass.");
             }, choice -> {
                 // Only publish IDs here; all game objects stay on the game thread.
+                agent.profile().accepted(choice instanceof PriorityDecision.PlayAction ? "play_action" : "pass_priority");
                 decision.complete(choice);
-                return "Priority decision accepted. Finish your response so Forge can execute it.";
+                return "Priority decision accepted.";
             });
             try {
                 try (var preparation = agent.profile().scope("preparation", "Capture priority options")) {
                     agent.setPriorityActions(PriorityActionsSnapshot.capture(player, requestId, options));
                 }
-                agent.prompt(PriorityPrompt.render(player, requestId), requestId, "priority", "Choose priority action");
+                agent.prompt(PriorityPrompt.render(player, requestId), requestId, "priority", "Choose priority action", decision);
             } catch (RuntimeException e) {
                 Logger.error(e, "Could not request a priority decision for {}", player.getName());
             } finally {

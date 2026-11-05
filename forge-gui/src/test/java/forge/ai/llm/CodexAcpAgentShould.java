@@ -1,10 +1,12 @@
 package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.client.AcpAsyncClient;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PromptResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
@@ -34,12 +36,16 @@ import org.mockito.ArgumentCaptor;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import reactor.core.publisher.Mono;
 
 import java.nio.file.Path;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -68,6 +74,10 @@ public class CodexAcpAgentShould {
 
     private AcpSyncClient clientSelecting(String model, String reasoningEffort) {
         final AcpSyncClient client = mock(AcpSyncClient.class);
+        final AcpAsyncClient async = mock(AcpAsyncClient.class);
+        when(client.async()).thenReturn(async);
+        when(async.prompt(any())).thenAnswer(invocation ->
+                Mono.fromCallable(() -> client.prompt(invocation.getArgument(0))));
         when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session"));
         final SessionConfigSelect option = SessionConfigSelect.builder()
                 .id("model").name("Model").currentValue(model)
@@ -116,6 +126,23 @@ public class CodexAcpAgentShould {
         agent.close();
         verify(client).close();
         verifyNoMoreInteractions(client);
+    }
+
+    @Test
+    public void releaseAnUnansweredPromptWhenTheSessionCloses() throws Exception {
+        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        try (var agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY)) {
+            final var requested = new CompletableFuture<Void>();
+            when(client.async().prompt(any())).thenAnswer(invocation -> {
+                requested.complete(null);
+                return Mono.<PromptResponse>never();
+            });
+            final var prompt = CompletableFuture.runAsync(() -> agent.prompt(
+                    "Choose", "pending-request", "choice", "Choose", new CompletableFuture<>()));
+            requested.get(5, TimeUnit.SECONDS);
+            agent.close();
+            Assert.expectThrows(ExecutionException.class, () -> prompt.get(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test

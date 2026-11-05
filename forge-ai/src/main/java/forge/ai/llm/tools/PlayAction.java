@@ -15,7 +15,7 @@ public record PlayAction(String requestId, int cardId, int abilityId) {
                 .description("Choose a spell to cast, land to play, ability to activate, or special action "
                         + "from any permitted zone for the pending priority request. "
                         + "Use a cardId and abilityId pair returned by get_available_actions for that request. "
-                        + "Forge executes the choice after your response and requests follow-up choices through submit_choice.")
+                        + "Forge executes the accepted choice and requests follow-up choices through submit_choice.")
                 .inputSchema(Map.of(
                         "type", "object",
                         "properties", Map.of(

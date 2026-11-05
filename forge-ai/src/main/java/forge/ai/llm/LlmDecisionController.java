@@ -132,12 +132,14 @@ abstract class LlmDecisionController extends PlayerControllerAi {
                         + (repeat ? " (repetition allowed)" : " without duplicates"));
             }
         }, answer -> {
+            decisionAgent().profile().accepted(answer instanceof ChoiceDecision.Cancel ? "cancel_action"
+                    : answer instanceof ChoiceDecision.Payment ? "pay_mana" : "submit_choice");
             future.complete(answer);
             return answer instanceof ChoiceDecision.Cancel
-                    ? "Action cancellation accepted. Finish this response so Forge can abort it and offer another action without passing priority."
+                    ? "Action cancellation accepted. Forge will offer another action without passing priority."
                     : answer instanceof ChoiceDecision.Payment
-                    ? "Payment plan accepted. Finish this response so Forge can execute the batch."
-                    : "Choice accepted. Finish this response so Forge can continue.";
+                    ? "Payment plan accepted."
+                    : "Choice accepted.";
         });
         StringBuilder prompt = new StringBuilder("You are playing as ").append(player.getName())
                 .append(".\nRequest ID: ").append(id).append("\nDecision: ").append(title)
@@ -166,7 +168,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         try {
             final String kind = manaSources != null ? "payment" : number ? "number"
                     : title.toLowerCase(java.util.Locale.ROOT).contains("target") ? "targeting" : "choice";
-            decisionAgent().prompt(prompt.toString(), id, kind, title);
+            decisionAgent().prompt(prompt.toString(), id, kind, title, future);
         } catch (RuntimeException e) {
             Logger.warn(e, "LLM prompt failed for {}: {}", player, title);
         } finally {
@@ -176,7 +178,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         }
         final ChoiceDecision decision = future.join();
         if (decision instanceof ChoiceDecision.Cancel) {
-            // Set only on the game thread, after ACP returns. No fallback may complete this canceled choice.
+            // Set only on the game thread, after submission. No fallback may complete this canceled choice.
             actionCanceled = true;
             return null;
         }

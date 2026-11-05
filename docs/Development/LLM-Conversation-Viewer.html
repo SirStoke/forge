@@ -561,19 +561,19 @@ function demoLog() {
  acp('AGENT','Tools discovered. I can inspect the deck and answer Forge’s pending decisions.');
  acp('USER','You are playing Magic: The Gathering as One and have priority.\nRequest ID: priority-1\nTurn player: One\nPhase: MAIN1\n\nCall get_available_actions with this request ID to see actions and costs. Affordability is not checked.');
  tool('actions-1','get_available_actions','{requestId=priority-1}',{requestId:'priority-1',affordabilityChecked:false,actions:[{cardId:12,abilityId:56,name:'Lightning Bolt',zone:'Hand',kind:'Cast spell',cost:'{R}',description:'Deal 3 damage to any target.'},{cardId:13,abilityId:57,name:'Island',zone:'Hand',kind:'Play land',cost:'None',description:'Play land.'}]});
- tool('play-1','play_action','{requestId=priority-1, cardId=12, abilityId=56}','Priority decision accepted. Finish your response so Forge can execute it.');
+ tool('play-1','play_action','{requestId=priority-1, cardId=12, abilityId=56}','Priority decision accepted.');
  acp('AGENT THOUGHT','The spell is listed, but I still need to choose its target and pay the red mana cost.');
  acp('AGENT','I choose Lightning Bolt.');
  acp('USER','You are playing as One.\nRequest ID: target-1\nDecision: Choose targets; each option may be chosen once.\nPhase: MAIN1\nPlayer: One id=0 life=20\nPlayer: Two id=1 life=17\nChoose 1..1 options. Call submit_choice with requestId and choices.\n0: Two id=1 life=17\n1: Opponent creature id=18 controller=Two type=Creature P/T=2/2\nYou may call cancel_action with this request ID instead to cancel without passing priority.');
- tool('target-call','submit_choice','{requestId=target-1, choices=[1]}','Choice accepted. Finish this response so Forge can continue.');
+ tool('target-call','submit_choice','{requestId=target-1, choices=[1]}','Choice accepted.');
  acp('AGENT','Target the opposing creature.');
  acp('USER','You are playing as One.\nRequest ID: payment-1\nDecision: Pay remaining mana {R}. Choose a source, floating mana, or life payment.\nPhase: MAIN1\nChoose 0..1 options. Call submit_choice with requestId and choices.\n0: Activate mana ability: Island id=7: Add {U}.\n1: Activate mana ability: Island id=8: Add {U}.\nYou may call cancel_action with requestId "payment-1" instead to cancel this action without passing priority.');
  tool('bad-cancel','cancel_action','{requestId=priority-1}','No pending callback for request: priority-1',true);
- tool('cancel-1','cancel_action','{requestId=payment-1}','Action cancellation accepted. Finish this response so Forge can abort it and offer another action without passing priority.');
+ tool('cancel-1','cancel_action','{requestId=payment-1}','Action cancellation accepted. Forge will offer another action without passing priority.');
  acp('AGENT','I only have Islands and cannot produce red mana. Cancel Lightning Bolt; retain priority.');
  acp('USER','You are playing Magic: The Gathering as One and have priority.\nRequest ID: priority-2\nTurn player: One\nPhase: MAIN1\nCall get_available_actions to choose another action, or pass_priority to pass.');
  tool('actions-2','get_available_actions','{requestId=priority-2}',{requestId:'priority-2',affordabilityChecked:false,actions:[{cardId:12,abilityId:56,name:'Lightning Bolt',zone:'Hand',kind:'Cast spell',cost:'{R}'},{cardId:13,abilityId:57,name:'Island',zone:'Hand',kind:'Play land',cost:'None'}]});
- tool('play-2','play_action','{requestId=priority-2, cardId=13, abilityId=57}','Priority decision accepted. Finish your response so Forge can execute it.');
+ tool('play-2','play_action','{requestId=priority-2, cardId=13, abilityId=57}','Priority decision accepted.');
  acp('AGENT','Play Island instead.');
  return lines.join('\n\n');
 }

@@ -1,6 +1,7 @@
 package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.client.AcpAsyncClient;
 import com.agentclientprotocol.sdk.spec.AcpSchema.*;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.llm.tools.SubmitChoice;
@@ -32,11 +33,15 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -56,12 +61,16 @@ public class GameplayChoicesShould {
         final Player player;
         final Player opponent;
         final AcpSyncClient client = mock(AcpSyncClient.class);
+        final AcpAsyncClient async = mock(AcpAsyncClient.class);
         final CodexAcpAgent agent;
         final PlayerControllerLlm controller;
         final McpSyncClient mcp;
         final List<String> prompts = new ArrayList<>();
 
         Session() {
+            when(client.async()).thenReturn(async);
+            when(async.prompt(any())).thenAnswer(invocation ->
+                    Mono.fromCallable(() -> client.prompt(invocation.getArgument(0))));
             game = new Match(new GameRules(GameType.Constructed), List.of(
                     new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("One", null)),
                     new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("Two", null))), "LLM gameplay").createGame();
@@ -169,17 +178,31 @@ public class GameplayChoicesShould {
     }
 
     @Test
-    public void selectModesAndUseThoseModesDuringCasting() {
+    public void selectModesAndUseThoseModesBeforeTheAgentTurnEnds() throws Exception {
+        final var gameThread = Executors.newSingleThreadExecutor();
         try (Session s = new Session()) {
             Card charm = s.card(s.player, ZoneType.Hand, "Choice spell", "ManaCost:0", "Types:Instant", "Oracle:",
                     "A:SP$ Charm | Choices$ Draw,Life | CharmNum$ 1 | SpellDescription$ Choose one.",
                     "SVar:Draw:DB$ Draw | Defined$ You | NumCards$ 1 | SpellDescription$ Draw a card.",
                     "SVar:Life:DB$ GainLife | Defined$ You | LifeAmount$ 5 | SpellDescription$ Gain 5 life.");
-            s.answer(prompt -> s.choices(prompt, "Gain 5 life"));
-            Assert.assertTrue(s.controller.playChosenSpellAbility(charm.getSpellAbilities().get(0)));
+            final var requested = new CompletableFuture<String>();
+            final var turnFinished = new CompletableFuture<PromptResponse>();
+            when(s.async.prompt(any())).thenAnswer(invocation -> {
+                final String prompt = ((PromptRequest) invocation.getArgument(0)).text();
+                s.prompts.add(prompt);
+                requested.complete(prompt);
+                return Mono.fromFuture(turnFinished);
+            });
+            final var played = gameThread.submit(() -> s.controller.playChosenSpellAbility(charm.getSpellAbilities().get(0)));
+            final String prompt = requested.get(5, TimeUnit.SECONDS);
+            Assert.assertFalse(s.mcp.callTool(new CallToolRequest(SubmitChoice.NAME, s.choices(prompt, "Gain 5 life"))).isError());
+            Assert.assertTrue(played.get(5, TimeUnit.SECONDS));
+            Assert.assertFalse(turnFinished.isDone(), "Casting must continue immediately after submitting the mode");
             SpellAbility cast = s.game.getStack().peek().getSpellAbility();
             Assert.assertEquals(cast.getSubAbility().getApi(), forge.game.ability.ApiType.GainLife);
             Assert.assertEquals(s.prompts.size(), 1);
+        } finally {
+            gameThread.shutdownNow();
         }
     }
 

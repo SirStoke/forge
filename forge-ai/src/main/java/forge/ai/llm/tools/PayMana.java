@@ -38,7 +38,7 @@ public record PayMana(String requestId, List<Step> steps) {
                         + "Existing floating mana is spent only when selected. Stops when paid, leaving surplus mana "
                         + "and unneeded sources untouched. Missing/invalid color choices or additional source costs "
                         + "can prompt again; unavailable steps pause the plan. Shares the pending request with "
-                        + "submit_choice and cancel_action: submit one, then finish your response. "
+                        + "submit_choice and cancel_action: submit exactly one decision. "
                         + "Only valid when the prompt offers pay_mana.")
                 .inputSchema(Map.of("type", "object", "properties", Map.of(
                         "requestId", Map.of("type", "string", "minLength", 1),

@@ -248,6 +248,12 @@ final class LlmMatchProfile {
             if (active != null && active.id.equals(id)) active.accept(tool);
         }
 
+        /** Validated callbacks record acceptance before waking the game thread and closing its request. */
+        void accepted(String tool) {
+            final Request active = request;
+            if (active != null) active.accept(tool);
+        }
+
         void fallback(String title) {
             if (!profile.enabled()) return;
             final var data = context();

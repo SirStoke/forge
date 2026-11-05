@@ -1,6 +1,8 @@
 package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.client.AcpAsyncClient;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PromptResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
@@ -45,6 +47,7 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -53,6 +56,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -71,11 +77,15 @@ public class PriorityActionsShould {
         final Player player;
         final Player opponent;
         final AcpSyncClient client = mock(AcpSyncClient.class);
+        final AcpAsyncClient async = mock(AcpAsyncClient.class);
         final CodexAcpAgent agent;
         final PlayerControllerLlm controller;
         final McpSyncClient mcp;
 
         Session() {
+            when(client.async()).thenReturn(async);
+            when(async.prompt(any())).thenAnswer(invocation ->
+                    Mono.fromCallable(() -> client.prompt(invocation.getArgument(0))));
             final var players = List.of(
                     new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("One", null)),
                     new RegisteredPlayer(new Deck()).setPlayer(new LobbyPlayerAi("Two", null)));
@@ -178,6 +188,52 @@ public class PriorityActionsShould {
         return snapshot.actions().stream().map(action -> action.name() + " [" + action.zone() + "; "
                 + action.kind() + "; cost: " + action.cost() + "]: cardId=" + action.cardId()
                 + ", abilityId=" + action.abilityId() + ". " + action.description()).collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    @Test
+    public void executeASubmittedActionAndSendTheNextPromptBeforeTheTurnEnds() throws Exception {
+        final var gameThread = Executors.newSingleThreadExecutor();
+        final var firstTurn = new CompletableFuture<PromptResponse>();
+        final var secondTurn = new CompletableFuture<PromptResponse>();
+        try (var session = new Session()) {
+            final Card land = session.card(session.player, ZoneType.Hand, "Forest",
+                    "ManaCost:no cost", "Types:Basic Land Forest", "Oracle:");
+            final var firstPrompt = new CompletableFuture<PromptRequest>();
+            final var secondPrompt = new CompletableFuture<PromptRequest>();
+            when(session.async.prompt(any())).thenAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                if (!firstPrompt.isDone()) {
+                    firstPrompt.complete(prompt);
+                    return Mono.fromFuture(firstTurn);
+                }
+                secondPrompt.complete(prompt);
+                return Mono.fromFuture(secondTurn);
+            });
+            final var played = gameThread.submit(() -> {
+                final var selected = session.controller.chooseSpellAbilityToPlay();
+                return session.controller.playChosenSpellAbility(selected.get(0));
+            });
+            final var prompt = firstPrompt.get(5, TimeUnit.SECONDS);
+            final var action = session.actions(prompt).actions().stream()
+                    .filter(option -> option.cardId() == land.getId()).findFirst().orElseThrow();
+            Assert.assertFalse(played.isDone());
+            Assert.assertFalse(session.mcp.callTool(session.play(requestId(prompt), land.getId(), action.abilityId())).isError());
+            Assert.assertTrue(played.get(5, TimeUnit.SECONDS));
+            Assert.assertTrue(land.isInZone(ZoneType.Battlefield));
+            Assert.assertFalse(firstTurn.isDone(), "Game execution must not wait for the agent turn");
+
+            final var kept = gameThread.submit(() -> session.controller.mulliganKeepHand(session.player, 0));
+            final var next = secondPrompt.get(5, TimeUnit.SECONDS);
+            Assert.assertFalse(firstTurn.isDone(), "Forge must send the next prompt without waiting for the previous turn");
+            Assert.assertFalse(session.mcp.callTool(new CallToolRequest("submit_mulligan_decision",
+                    Map.of("requestId", requestId(next), "keep", false))).isError());
+            Assert.assertFalse(kept.get(5, TimeUnit.SECONDS));
+            Assert.assertFalse(secondTurn.isDone(), "Mulligan submission must also release the game thread");
+        } finally {
+            gameThread.shutdownNow();
+        }
+        Assert.assertTrue(firstTurn.isCancelled(), "Closing the session must cancel every unfinished prompt");
+        Assert.assertTrue(secondTurn.isCancelled());
     }
 
     @Test

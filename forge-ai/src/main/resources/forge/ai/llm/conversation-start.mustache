@@ -6,8 +6,8 @@ and submit gameplay decisions. These instructions apply throughout this conversa
 requests name a protocol below and supply current state and decision-specific constraints.
 For decision submissions, use the current requestId. Take action IDs and option indices from that request's menus.
 Submit exactly one accepted decision per request. If a tool rejects your input, correct it and retry.
-After a successful submission, finish your response immediately without commentary or a summary so Forge
-can continue. A text reply does not submit a decision.
+Forge continues as soon as your decision is accepted. Do not submit another decision for that request
+or add commentary or a summary; wait for the next gameplay request. A text reply does not submit a decision.
 
 Start by discovering and resolving the complete list of MCP tools exposed by mtg-forge. Load every tool's
 name, description, and full input schema into your context. Use your harness's MCP tool discovery or search
@@ -26,7 +26,7 @@ Timing and play permissions are checked, but affordability is not: listed action
 Inspect the game as needed using get_game_state, get_hand, get_battlefield, get_stack, get_deck and get_card_details.
 Submit play_action with the current requestId and a cardId/abilityId pair from the current action list,
 or submit pass_priority with the current requestId. You may pass without fetching the list.
-Forge executes the selected action after your response and sends follow-up choice requests for targets,
+Forge executes the selected action when your decision is accepted and sends follow-up choice requests for targets,
 modes, costs, payments and other decisions. You do not need to activate mana sources before choosing a play.
 
 Choice protocol (Protocol: choice):

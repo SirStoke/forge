@@ -24,6 +24,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** A Codex session with an MCP endpoint for game decisions. */
@@ -59,6 +63,7 @@ final class CodexAcpAgent implements AutoCloseable {
     private final LlmMatchProfile.Session profile;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Thread shutdownHook;
+    private final Set<CompletableFuture<?>> pendingTurns = ConcurrentHashMap.newKeySet();
 
     private CodexAcpAgent(AcpSyncClient client, String sessionId, ForgeMcpServer mcpServer,
                           ConversationLog conversation, Options options, LlmMatchProfile.Session profile) {
@@ -87,6 +92,8 @@ final class CodexAcpAgent implements AutoCloseable {
                 final AgentParameters parameters = AgentParameters.builder("pnpm")
                         .args("dlx", ADAPTER)
                         .addEnvVar("NO_BROWSER", "1")
+                        // Run game sessions without the adapter's default sandbox and auto-review.
+                        .addEnvVar("INITIAL_AGENT_MODE", "agent-full-access")
                         .build();
                 final StdioAcpClientTransport transport = new StdioAcpClientTransport(parameters);
                 final AcpSyncClient client = AcpClient.sync(transport)
@@ -221,6 +228,12 @@ final class CodexAcpAgent implements AutoCloseable {
     }
 
     void prompt(String text, String requestId, String decisionType, String title) {
+        prompt(text, requestId, decisionType, title, null);
+    }
+
+    /** Wait for a submitted decision or an unanswered/failed turn, whichever arrives first. */
+    void prompt(String text, String requestId, String decisionType, String title, CompletableFuture<?> decision) {
+        if (closed.get()) throw new IllegalStateException("Codex session is closed");
         try (var request = profile.beginRequest(requestId, decisionType, title, text)) {
             try {
                 try (var preparation = profile.scope("preparation", "Refresh game observations")) {
@@ -229,7 +242,28 @@ final class CodexAcpAgent implements AutoCloseable {
                     ConversationLog.log(sessionId, "USER", text);
                 }
                 try (var wait = profile.scope("agent_wait", "Agent / transport wait")) {
-                    client.prompt(PromptRequest.text(sessionId, text));
+                    if (decision == null) {
+                        client.prompt(PromptRequest.text(sessionId, text));
+                    } else {
+                        // The adapter queues prompts for this session; Forge can send the next one immediately.
+                        final var turn = client.async().prompt(PromptRequest.text(sessionId, text)).toFuture();
+                        pendingTurns.add(turn);
+                        turn.whenComplete((result, error) -> {
+                            pendingTurns.remove(turn);
+                            conversation.flush();
+                            if (error != null && !closed.get()) {
+                                Logger.warn(error, "ACP turn failed for request {}", requestId);
+                            }
+                        });
+                        // close() may race with starting the asynchronous request.
+                        if (closed.get()) turn.cancel(true);
+                        try {
+                            CompletableFuture.anyOf(decision, turn).join();
+                        } catch (CompletionException e) {
+                            // A transport failure must not discard a choice already accepted by the tool.
+                            if (!decision.isDone()) throw e;
+                        }
+                    }
                 }
             } catch (RuntimeException e) {
                 request.failed();
@@ -248,6 +282,7 @@ final class CodexAcpAgent implements AutoCloseable {
         }
         try {
             try {
+                pendingTurns.forEach(turn -> turn.cancel(true));
                 client.close();
             } finally {
                 try {
