@@ -5,6 +5,8 @@ import forge.ai.llm.tools.PayMana;
 import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
+import forge.ai.llm.tools.RuleText;
+import forge.ai.llm.tools.RulesIndex;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveDeck;
@@ -57,6 +59,8 @@ final class ForgeMcpServer implements AutoCloseable {
         tools.register(Mulligan::schema, Mulligan::compile,
                 mulligan -> mulliganDecision.call(mulligan.requestId(), mulligan.keep()));
         tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
+        tools.register(RulesIndex::schema, RulesIndex::compile, request -> ComprehensiveRules.bundled().index(request));
+        tools.register(RuleText::schema, RuleText::compile, request -> ComprehensiveRules.bundled().read(request));
         tools.register(ObserveStack::schema, ObserveStack::compile, request -> game.read().stack());
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
         tools.register(ObserveDeck::schema, ObserveDeck::compile, request -> game.read().deck());

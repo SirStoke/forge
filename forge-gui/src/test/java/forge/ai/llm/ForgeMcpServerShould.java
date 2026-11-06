@@ -5,6 +5,8 @@ import forge.ai.llm.tools.PayMana;
 import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.Mulligan;
 import forge.ai.llm.tools.CardDetails;
+import forge.ai.llm.tools.RuleText;
+import forge.ai.llm.tools.RulesIndex;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveDeck;
@@ -41,7 +43,7 @@ public class ForgeMcpServerShould {
             try (var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
                 Assert.assertEquals(client.initialize().serverInfo().name(), "mtg-forge");
                 Assert.assertEquals(client.listTools().tools().stream().map(tool -> tool.name())
-                        .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, ObserveStack.NAME,
+                        .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, RuleText.NAME, RulesIndex.NAME, ObserveStack.NAME,
                                 ObserveHand.NAME, ObserveBattlefield.NAME, ObserveGameState.NAME, PlayAction.NAME, PassPriority.NAME, SubmitChoice.NAME, GetAvailableActions.NAME, CancelAction.NAME, ObserveDeck.NAME, PayMana.NAME));
                 Assert.assertTrue(client.callTool(new CallToolRequest(GetAvailableActions.NAME,
                         Map.of("requestId", "missing"))).isError());
