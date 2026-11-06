@@ -2,12 +2,16 @@ package forge.ai.llm;
 
 import com.google.common.eventbus.Subscribe;
 import forge.LobbyPlayer;
+import forge.ai.llm.tools.SubmitSideboardPlan;
+import forge.deck.Deck;
 import forge.game.Game;
+import forge.game.GameType;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
 import forge.game.player.Player;
 import forge.game.player.PlaySpellAbility;
 import forge.game.spellability.SpellAbility;
+import forge.item.PaperCard;
 import org.tinylog.Logger;
 
 import java.nio.file.Path;
@@ -25,6 +29,7 @@ public class PlayerControllerLlm extends LlmDecisionController {
     private boolean initializationAttempted;
     private boolean finished;
     private boolean passAfterFailedPlay;
+    private List<String> sideboardingReport = List.of();
 
     @Override
     protected CodexAcpAgent decisionAgent() {
@@ -43,6 +48,12 @@ public class PlayerControllerLlm extends LlmDecisionController {
 
     @Subscribe
     public void onGameStarted(GameEventGameStarted event) {
+        initializeAgent();
+        // A session started for sideboarding must now publish the deck actually prepared by Match.
+        if (agent != null) agent.refreshGameState();
+    }
+
+    private void initializeAgent() {
         // Copies may advance phases for simulations; they must not start agents.
         if (getGame().isSimulationCopy() || initializationAttempted || finished) {
             return;
@@ -56,6 +67,63 @@ public class PlayerControllerLlm extends LlmDecisionController {
         } catch (RuntimeException e) {
             Logger.error(e, "Could not initialize Codex ACP for {}", player.getName());
         }
+    }
+
+    @Override
+    public boolean sideboardsByItself() {
+        return getGame().getRules().getAISideboardingEnabled();
+    }
+
+    @Override
+    public List<String> getSideboardingReport() {
+        return sideboardingReport;
+    }
+
+    @Override
+    public List<PaperCard> sideboard(Deck deck, GameType gameType, String message) {
+        sideboardingReport = List.of();
+        if (!sideboardsByItself() || !gameType.isSideboardingAllowed() || getGame().isSimulationCopy() || finished) {
+            return null;
+        }
+        final var options = new SideboardOptions(deck, gameType);
+        if (!options.hasChoices()) return null;
+        initializeAgent();
+        if (agent != null) {
+            try (var timing = agent.profile().scope("decision", "Sideboarding")) {
+                final var decision = new CompletableFuture<SubmitSideboardPlan>();
+                final var callback = agent.sideboardDecision();
+                final String requestId = callback.register(options::validate, plan -> {
+                    // MCP validates frozen counts and publishes IDs; it never changes the deck.
+                    agent.profile().accepted("submit_sideboard_plan");
+                    decision.complete(plan);
+                    return "Sideboarding plan accepted.";
+                });
+                final var match = getGame().getMatch();
+                final String score = match.getPlayers().stream()
+                        .map(participant -> participant.getPlayer().getName() + "="
+                                + match.getGamesWonBy(participant.getPlayer()))
+                        .collect(java.util.stream.Collectors.joining(", "));
+                try {
+                    agent.prompt(options.prompt(player.getName(), requestId, score),
+                            requestId, "sideboard", "Sideboarding", decision);
+                } catch (RuntimeException e) {
+                    Logger.error(e, "Could not request sideboarding for {}", player.getName());
+                } finally {
+                    if (callback.cancel(requestId)) decision.complete(null);
+                }
+                final var plan = decision.join();
+                if (plan != null) {
+                    sideboardingReport = options.report(plan);
+                    return options.apply(plan);
+                }
+            } catch (RuntimeException e) {
+                Logger.error(e, "Could not request sideboarding for {}", player.getName());
+            }
+            agent.profile().fallback("Sideboarding");
+        }
+        sideboardingReport = List.of("kept the same deck (no LLM sideboarding decision).");
+        onLlmFallback("Sideboarding");
+        return null;
     }
 
     @Subscribe

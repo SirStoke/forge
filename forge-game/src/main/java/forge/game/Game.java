@@ -626,6 +626,7 @@ public class Game {
         // The log shall listen to events and generate text internally
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
+            match.recordGameLog(this);
         }
     }
 

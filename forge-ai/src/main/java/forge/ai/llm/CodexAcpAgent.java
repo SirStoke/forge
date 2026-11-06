@@ -17,6 +17,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.TextContent;
 import forge.util.BuildInfo;
 import forge.game.player.Player;
+import forge.ai.llm.tools.SubmitSideboardPlan;
 import org.tinylog.Logger;
 
 import java.nio.file.Path;
@@ -207,6 +208,10 @@ final class CodexAcpAgent implements AutoCloseable {
         return mcpServer.mulliganDecision();
     }
 
+    CallbackOnce<SubmitSideboardPlan, String> sideboardDecision() {
+        return mcpServer.sideboardDecision();
+    }
+
     CallbackOnce<PriorityDecision, String> priorityDecision() {
         return mcpServer.priorityDecision();
     }
@@ -221,6 +226,10 @@ final class CodexAcpAgent implements AutoCloseable {
 
     void clearPriorityActions(String requestId) {
         mcpServer.clearPriorityActions(requestId);
+    }
+
+    void refreshGameState() {
+        mcpServer.refreshGameState();
     }
 
     void prompt(String text) {

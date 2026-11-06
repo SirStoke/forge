@@ -39,6 +39,16 @@ public class Match {
     private final Map<Integer, GameOutcome> gameOutcomes = Maps.newHashMap();
 
     private GameOutcome lastOutcome = null;
+    private List<String> lastGameLog = List.of();
+
+    /** Frozen text from the last completed game, in chronological order; no live cards are retained. */
+    public List<String> getLastGameLog() {
+        return lastGameLog;
+    }
+
+    void recordGameLog(Game finished) {
+        lastGameLog = finished.getGameLog().getAllEntries().stream().map(GameLogEntry::toString).toList();
+    }
 
     public Match(final GameRules rules0, final List<RegisteredPlayer> players0, final String title) {
         players = Collections.unmodifiableList(Lists.newArrayList(players0));
@@ -121,6 +131,9 @@ public class Match {
 
     public void clearGamesPlayed() {
         gameOutcomes.clear();
+        lastOutcome = null;
+        lastGameLog = List.of();
+        playedMains.clear();
         for (RegisteredPlayer p : players) {
             p.restoreDeck();
         }

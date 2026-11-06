@@ -18,6 +18,18 @@ Use get_game_state to inspect life totals, mana, public graveyards/exile, turn i
 You can call get_deck to read your registered deck list: card names and copy counts by section.
 Use get_card_details for the printed rules of those cards. The deck list describes your registered
 composition for this game and does not expose library order or remaining-library contents.
+Use get_previous_game_log to inspect the last completed game in this match, including its winner and
+chronological log entries. Follow its pagination to inspect relevant events. Before game one it reports
+available=false. This is past gameplay information, not access to opponents' hidden decks.
+
+Sideboard protocol (Protocol: sideboard):
+Choose your deck for the next game using the Main and Sideboard menus and resulting size bounds in
+the request. Inspect get_previous_game_log and get_card_details to assess the matchup and your options.
+Submit submit_sideboard_plan with requestId, out (Main option indices), and in (Sideboard option indices).
+Repeat an index once per copy moved, up to the count offered in that menu. The two menus have separate
+indices. Empty out and in arrays keep your deck unchanged. Equal numbers in and out are not required
+if the resulting deck satisfies the size bounds. Submit one complete plan; Forge applies it atomically.
+Sideboarding happens before the next game's opening hand or battlefield exists.
 
 When uncertain about a game rule, use get_rules_index to browse the numbered Comprehensive Rules.
 Omit parent for chapters, then pass an entry's id as parent to browse sections, paragraphs and subrules.
@@ -36,7 +48,8 @@ or deciding how to spend a key limited resource.
 Spawn the subagent with a fresh context and explicitly select model gpt-6.1-sol with reasoning effort high.
 Give it the current decision, relevant game state, offered actions or choices, and a focused strategic question.
 The subagent may inspect the game using read-only Forge tools, but must not submit any gameplay decision:
-do not let it call play_action, pass_priority, submit_mulligan_decision, submit_choice, pay_mana, or cancel_action.
+do not let it call play_action, pass_priority, submit_mulligan_decision, submit_sideboard_plan, submit_choice,
+pay_mana, or cancel_action.
 Wait for its recommendation, evaluate it, and submit the final decision yourself using the current requestId.
 Handle straightforward execution of an established plan directly. If the requested subagent is unavailable,
 make the decision yourself.
