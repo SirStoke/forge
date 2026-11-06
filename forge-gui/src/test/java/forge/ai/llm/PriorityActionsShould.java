@@ -196,7 +196,7 @@ public class PriorityActionsShould {
     }
 
     @Test
-    public void executeASubmittedActionAndSendTheNextPromptBeforeTheTurnEnds() throws Exception {
+    public void executeASubmittedActionImmediatelyAndBufferTheNextPromptUntilTheTurnEnds() throws Exception {
         final var gameThread = Executors.newSingleThreadExecutor();
         final var firstTurn = new CompletableFuture<PromptResponse>();
         final var secondTurn = new CompletableFuture<PromptResponse>();
@@ -228,8 +228,11 @@ public class PriorityActionsShould {
             Assert.assertFalse(firstTurn.isDone(), "Game execution must not wait for the agent turn");
 
             final var kept = gameThread.submit(() -> session.controller.mulliganKeepHand(session.player, 0));
+            // The first decision releases the game, but OpenCode permits only one active transport prompt.
+            Assert.expectThrows(java.util.concurrent.TimeoutException.class, () -> secondPrompt.get(100, TimeUnit.MILLISECONDS));
+            Assert.assertFalse(firstTurn.isDone(), "Buffering must not cancel the previous response");
+            firstTurn.complete(null);
             final var next = secondPrompt.get(5, TimeUnit.SECONDS);
-            Assert.assertFalse(firstTurn.isDone(), "Forge must send the next prompt without waiting for the previous turn");
             Assert.assertFalse(session.mcp.callTool(new CallToolRequest("submit_mulligan_decision",
                     Map.of("requestId", requestId(next), "keep", false))).isError());
             Assert.assertFalse(kept.get(5, TimeUnit.SECONDS));
@@ -237,7 +240,7 @@ public class PriorityActionsShould {
         } finally {
             gameThread.shutdownNow();
         }
-        Assert.assertTrue(firstTurn.isCancelled(), "Closing the session must cancel every unfinished prompt");
+        Assert.assertFalse(firstTurn.isCancelled(), "Completed responses must not be cancelled");
         Assert.assertTrue(secondTurn.isCancelled());
     }
 
@@ -742,7 +745,7 @@ public class PriorityActionsShould {
     }
 
     @Test(dataProvider = "cancellableCastingSteps")
-    public void cancelDuringCastingWithoutCompletingTheChoiceUsingAi(String step, String[] script) {
+    public void cancelDuringCastingWithoutCompletingTheChoiceUsingAi(String step, String[] script) throws Exception {
         try (var session = new Session()) {
             final Card spell = session.card(session.player, ZoneType.Hand, "Cancel " + step, script);
             session.card(session.player, ZoneType.Battlefield, "Creature one",
@@ -752,15 +755,20 @@ public class PriorityActionsShould {
             final Card other = session.card(session.player, ZoneType.Hand, "Another action",
                     "ManaCost:0", "Types:Artifact", "Oracle:");
             final var count = new java.util.concurrent.atomic.AtomicInteger();
+            final var cancellationReply = new CompletableFuture<Void>();
             doAnswer(invocation -> {
                 final PromptRequest prompt = invocation.getArgument(0);
                 Assert.assertTrue(prompt.text().contains("Cancel action: allowed"), prompt.text());
                 Assert.assertFalse(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
                         Map.of("requestId", requestId(prompt)))).isError());
                 count.incrementAndGet();
+                cancellationReply.complete(null);
                 return null;
             }).when(session.client).prompt(any());
             Assert.assertFalse(session.controller.playChosenSpellAbility(spell.getSpellAbilities().get(0)), step);
+            // The game can resume before the mock agent even receives its MCP reply.
+            // Wait here only so fixture teardown doesn't close that exchange mid-response.
+            cancellationReply.get(5, TimeUnit.SECONDS);
             Assert.assertEquals(count.get(), 1, "Cancellation must stop casting without another prompt");
             Assert.assertTrue(spell.isInZone(ZoneType.Hand));
             Assert.assertTrue(session.game.getStack().isEmpty());

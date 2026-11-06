@@ -89,9 +89,10 @@ abstract class PuzzleEvalSupport {
         }
 
         void startLlms() {
+            final var configuration = LlmEvalConfiguration.fromSystemProperties();
             final List<PlayerControllerLlm> controllers = new ArrayList<>();
             for (Player participant : game.getPlayers()) {
-                final PlayerControllerLlm controller = new PlayerControllerLlm(game, participant, participant.getLobbyPlayer()) {
+                final PlayerControllerLlm controller = new PlayerControllerLlm(game, participant, participant.getLobbyPlayer(), configuration.agentFactory(participant)) {
                     private int priorityDecisions;
 
                     @Override protected void onLlmFallback(String title) {
@@ -109,7 +110,7 @@ abstract class PuzzleEvalSupport {
             }
             game.fireEvent(new GameEventGameStarted(GameType.Constructed, game.getPhaseHandler().getPlayerTurn(), game.getPlayers()));
             for (PlayerControllerLlm controller : controllers) {
-                Assert.assertNotNull(controller.decisionAgent(), "Real Codex ACP startup failed; check the logs and prerequisites");
+                Assert.assertNotNull(controller.decisionAgent(), "Real ACP agent startup failed; check the logs and prerequisites");
             }
         }
 

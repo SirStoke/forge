@@ -39,7 +39,7 @@ public class MasterYourDestinyEval extends PuzzleEvalSupport {
     }
 
     @Test(timeOut = 900_000)
-    public void planTheLibraryAndWinThisTurnThroughCodexAcp() {
+    public void planTheLibraryAndWinThisTurnThroughAcp() {
         try (Scenario s = position()) {
             s.startLlms();
             s.run(() -> s.game.getPhaseHandler().getTurn() > 1 || s.game.getPhaseHandler().is(PhaseType.CLEANUP));

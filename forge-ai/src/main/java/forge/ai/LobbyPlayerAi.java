@@ -18,6 +18,16 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     private AIOption option;
     private final AiEngine engine;
     private String acpAgent = AcpAgentRegistry.CODEX;
+    private String llmFastModel = "";
+    private String llmPlanningModel = "";
+
+    public void setLlmModels(String fast, String planning) {
+        llmFastModel = fast;
+        llmPlanningModel = planning;
+    }
+
+    public String getLlmFastModel() { return llmFastModel; }
+    public String getLlmPlanningModel() { return llmPlanningModel; }
 
     public void setAcpAgent(String id) {
         acpAgent = id == null || id.isBlank() ? AcpAgentRegistry.CODEX : id;
@@ -51,7 +61,7 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
 
     private PlayerControllerAi createControllerFor(Player ai) {
         if (engine == AiEngine.LLM) {
-            return new PlayerControllerLlm(ai.getGame(), ai, this, acpAgent);
+            return new PlayerControllerLlm(ai.getGame(), ai, this, acpAgent, new forge.ai.llm.AcpModels(llmFastModel, llmPlanningModel));
         }
         PlayerControllerAi result = new PlayerControllerAi(ai.getGame(), ai, this);
         result.getAi().setUseSimulation(option);

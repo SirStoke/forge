@@ -423,6 +423,11 @@ public class VLobby implements ILobbyView {
                 if (slot.getAcpAgent() == null && lobby.mayEdit(i)) {
                     slot.setAcpAgent(PlayerPanel.savedAcpAgent(i));
                 }
+                if (slot.getLlmFastModel() == null && lobby.mayEdit(i)) {
+                    final var models = PlayerPanel.savedModels(i, slot.getAcpAgent());
+                    slot.setLlmFastModel(models.fastModel());
+                    slot.setLlmPlanningModel(models.planningModel());
+                }
                 final PlayerPanel panel;
                 final boolean isNewPanel;
                 if (hasPanel) {
@@ -454,6 +459,7 @@ public class VLobby implements ILobbyView {
                 panel.setUseAiSimulation(slot.getAiOptions());
                 panel.setAiEngine(slot.getAiEngine());
                 panel.setAcpAgent(slot.getAcpAgent());
+                panel.setModels(new forge.ai.llm.AcpModels(slot.getLlmFastModel(), slot.getLlmPlanningModel()));
                 panel.setMayEdit(lobby.mayEdit(i));
                 panel.setMayControl(lobby.mayControl(i));
                 panel.setMayRemove(lobby.mayRemove(i));
@@ -620,12 +626,14 @@ public class VLobby implements ILobbyView {
                 panel.getTeam(), panel.isArchenemy(),
                 panel.isDevMode(),
                 panel.getAiOptions(),
-                panel.getAiProfile(), panel.getAiEngine(), panel.getAcpAgent());
+                panel.getAiProfile(), panel.getAiEngine(), panel.getAcpAgent(),
+                panel.getModels().fastModel(), panel.getModels().planningModel());
     }
 
     private boolean validateAcpAgents() {
         for (int i = 0; i < activePlayersNum; i++) {
             final PlayerPanel panel = getPlayerPanel(i);
+            panel.commitModels();
             final String reason = panel.acpUnavailableReason();
             if (!reason.isEmpty()) {
                 SOptionPane.showErrorDialog(panel.getPlayerName() + ": " + reason);

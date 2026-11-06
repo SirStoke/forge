@@ -55,11 +55,16 @@ mvn -pl forge-gui -am -Pllm-evals test
 ```
 
 They do not run with normal tests. See [Live LLM evals](docs/Development/LLM-Evals.md)
-for prerequisites, scenarios, and results.
+for prerequisites, scenarios, and results. Select a harness and model pair with
+`-Dforge.llm.eval.acp=opencode`, `-Dforge.llm.eval.fastModel=provider/model`, and
+`-Dforge.llm.eval.planningModel=provider/model#high`.
 
 To record LLM match timings, enable `-Dforge.llm.profile=true`. See
 [Match profiling](docs/Development/LLM-Match-Profiling.md) for launcher commands
 and the performance viewer.
+
+For agent selection, launch prerequisites, and MCP compatibility, see
+[ACP agents in the desktop lobby](docs/Development/ACP-Agents.md).
 
 ### IntelliJ
 

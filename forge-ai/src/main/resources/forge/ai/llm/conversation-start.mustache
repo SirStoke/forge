@@ -45,7 +45,7 @@ wipe, a major new threat, a swing in available resources, or new information abo
 Consult when choosing between plausible plans or lines that shape the next several turns. Also consult
 when finding or preventing lethal, navigating complex combat or stack interactions, committing to a combo,
 or deciding how to spend a key limited resource.
-Spawn the subagent with a fresh context and explicitly select model gpt-6.1-sol with reasoning effort high.
+{{{planningInstructions}}}
 Give it the current decision, relevant game state, offered actions or choices, and a focused strategic question.
 The subagent may inspect the game using read-only Forge tools, but must not submit any gameplay decision:
 do not let it call play_action, pass_priority, submit_mulligan_decision, submit_sideboard_plan, submit_choice,

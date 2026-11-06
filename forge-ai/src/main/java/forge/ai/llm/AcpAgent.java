@@ -11,6 +11,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PromptResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionNotification;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
@@ -30,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** An ACP session with an MCP endpoint for game decisions. */
 final class AcpAgent implements AutoCloseable {
@@ -61,18 +63,23 @@ final class AcpAgent implements AutoCloseable {
     private final ConversationLog conversation;
     private final Options options;
     private final LlmMatchProfile.Session profile;
+    private final AcpAgentSettings.Launch launch;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Thread shutdownHook;
     private final Set<CompletableFuture<?>> pendingTurns = ConcurrentHashMap.newKeySet();
+    private final Object promptQueueLock = new Object();
+    private CompletableFuture<Void> promptTail = CompletableFuture.completedFuture(null);
 
     private AcpAgent(AcpSyncClient client, String sessionId, ForgeMcpServer mcpServer,
-                          ConversationLog conversation, Options options, LlmMatchProfile.Session profile) {
+                          ConversationLog conversation, Options options, LlmMatchProfile.Session profile,
+                          AcpAgentSettings.Launch launch) {
         this.client = client;
         this.sessionId = sessionId;
         this.mcpServer = mcpServer;
         this.conversation = conversation;
         this.options = options;
         this.profile = profile;
+        this.launch = launch;
         shutdownHook = new Thread(this::close, "forge-acp-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
@@ -86,31 +93,46 @@ final class AcpAgent implements AutoCloseable {
     }
 
     static AcpAgent start(Path workingDirectory, Player player, String agentId) {
-        return start(workingDirectory, player, AcpAgentRegistry.CODEX.equals(agentId)
-                ? Options.fromSystemProperties() : new Options("agent default", "agent default"),
-                AcpAgentRegistry.get(agentId));
+        return start(workingDirectory, player, agentId, AcpModels.defaults());
+    }
+
+    static AcpAgent start(Path workingDirectory, Player player, String agentId, AcpModels selection) {
+        final var models = selection.resolve(agentId);
+        final var options = new Options(models.fastModel().isEmpty() ? "agent default" : models.fastModel(),
+                AcpAgentRegistry.CODEX.equals(agentId) ? Options.fromSystemProperties().reasoningEffort() : "agent default");
+        return start(workingDirectory, player, options, AcpAgentRegistry.get(agentId), models);
     }
 
     private static AcpAgent start(Path workingDirectory, Player player, Options options, AcpAgentRegistry.Entry entry) {
+        return start(workingDirectory, player, options, entry,
+                new AcpModels(options.model(), "").resolve(entry.id()));
+    }
+
+    private static AcpAgent start(Path workingDirectory, Player player, Options options, AcpAgentRegistry.Entry entry,
+                                  AcpModels models) {
         Objects.requireNonNull(options, "options");
+        final String invalid = models.validationError(entry.id());
+        if (!invalid.isEmpty()) throw new IllegalArgumentException(invalid);
         if (!entry.available()) throw new IllegalStateException(entry.name() + ": " + entry.unavailableReason());
         final ConversationLog conversation = new ConversationLog();
         final var profile = LlmMatchProfile.session(player);
         profile.configure(options);
         conversation.profile = profile;
         try (var startup = profile.scope("startup", "Start " + entry.name() + " session")) {
+            final var launch = AcpAgentSettings.prepareLaunch(entry, models);
             try {
-                final StdioAcpClientTransport transport = new StdioAcpClientTransport(AcpAgentSettings.launchParameters(entry));
+                final StdioAcpClientTransport transport = new StdioAcpClientTransport(launch.parameters());
                 final AcpSyncClient client = AcpClient.sync(transport)
                         .clientInfo(new Implementation("mtg-forge", BuildInfo.getVersionString()))
                         .sessionUpdateHandler(conversation::onUpdate)
-                        .requestPermissionHandler(AcpAgentSettings::approvePermission)
+                        .requestPermissionHandler(request -> AcpAgentSettings.approvePermission(entry.id(), request))
                         // First launch may also need to download the pinned adapter.
                         .requestTimeout(Duration.ofMinutes(2))
                         .promptTimeout(Duration.ofMinutes(2))
                         .build();
-                return initialize(client, workingDirectory, conversation, player, options, profile, entry.id());
+                return initialize(client, workingDirectory, conversation, player, options, profile, entry.id(), launch, models);
             } catch (RuntimeException e) {
+                launch.close();
                 startup.data("outcome", "error");
                 throw e;
             }
@@ -130,13 +152,19 @@ final class AcpAgent implements AutoCloseable {
     }
 
     static AcpAgent initializeForAgent(AcpSyncClient client, Path workingDirectory, Player player, String agentId) {
+        return initializeForAgent(client, workingDirectory, player, agentId, AcpModels.defaults());
+    }
+
+    static AcpAgent initializeForAgent(AcpSyncClient client, Path workingDirectory, Player player, String agentId,
+                                       AcpModels selection) {
+        final var models = selection.resolve(agentId);
         final var profile = LlmMatchProfile.session(player);
-        final var options = AcpAgentRegistry.CODEX.equals(agentId) ? Options.fromSystemProperties()
-                : new Options("agent default", "agent default");
+        final var options = new Options(models.fastModel().isEmpty() ? "agent default" : models.fastModel(),
+                AcpAgentRegistry.CODEX.equals(agentId) ? Options.fromSystemProperties().reasoningEffort() : "agent default");
         profile.configure(options);
         final var conversation = new ConversationLog();
         conversation.profile = profile;
-        return initialize(client, workingDirectory, conversation, player, options, profile, agentId);
+        return initialize(client, workingDirectory, conversation, player, options, profile, agentId, null, models);
     }
 
     private static AcpAgent initialize(AcpSyncClient client, Path workingDirectory,
@@ -163,10 +191,20 @@ final class AcpAgent implements AutoCloseable {
     private static AcpAgent initialize(AcpSyncClient client, Path workingDirectory,
                                             ConversationLog conversation, Player player, Options options,
                                             LlmMatchProfile.Session profile, String agentId) {
+        return initialize(client, workingDirectory, conversation, player, options, profile, agentId, null,
+                AcpAgentRegistry.CODEX.equals(agentId) ? new AcpModels(options.model(), "").resolve(agentId) : AcpModels.defaults());
+    }
+
+    private static AcpAgent initialize(AcpSyncClient client, Path workingDirectory,
+                                            ConversationLog conversation, Player player, Options options,
+                                            LlmMatchProfile.Session profile, String agentId, AcpAgentSettings.Launch launch,
+                                            AcpModels models) {
         ForgeMcpServer mcpServer = null;
         AcpAgent agent = null;
         try {
             Objects.requireNonNull(options, "options");
+            final String invalid = models.validationError(agentId);
+            if (!invalid.isEmpty()) throw new IllegalArgumentException(invalid);
             try (var setup = profile.scope("startup_step", "Start local MCP server")) {
                 mcpServer = ForgeMcpServer.start(player, profile);
             }
@@ -183,7 +221,7 @@ final class AcpAgent implements AutoCloseable {
                 session = client.newSession(new NewSessionRequest(
                         workingDirectory.toAbsolutePath().normalize().toString(),
                         List.of(new McpServerHttp("mtg-forge", mcpServer.getUrl(), List.of())), List.of(),
-                        AcpAgentSettings.sessionMetadata(agentId)));
+                        AcpAgentSettings.sessionMetadata(agentId, models)));
             }
             final String sessionId = session.sessionId();
             profile.sessionId(sessionId);
@@ -206,8 +244,12 @@ final class AcpAgent implements AutoCloseable {
                     throw new IllegalStateException("Codex did not select the requested reasoning effort: " + options.reasoningEffort());
                 }
             }
-            agent = new AcpAgent(client, sessionId, mcpServer, conversation, options, profile);
-            agent.prompt(PromptTemplates.load("conversation-start.mustache").execute(Map.of()), "", "startup", "Session instructions");
+            if (!AcpAgentRegistry.CODEX.equals(agentId) && !models.fastModel().isEmpty()) {
+                AcpAgentSettings.selectModel(client, session, agentId, models.fastModel());
+            }
+            agent = new AcpAgent(client, sessionId, mcpServer, conversation, options, profile, launch);
+            agent.prompt(PromptTemplates.load("conversation-start.mustache").execute(Map.of(
+                    "planningInstructions", AcpAgentSettings.planningInstructions(agentId, models))), "", "startup", "Session instructions");
             return agent;
         } catch (RuntimeException e) {
             if (agent != null) {
@@ -275,7 +317,7 @@ final class AcpAgent implements AutoCloseable {
 
     /** Wait for a submitted decision or an unanswered/failed turn, whichever arrives first. */
     void prompt(String text, String requestId, String decisionType, String title, CompletableFuture<?> decision) {
-        if (closed.get()) throw new IllegalStateException("Codex session is closed");
+        if (closed.get()) throw new IllegalStateException("ACP session is closed");
         try (var request = profile.beginRequest(requestId, decisionType, title, text)) {
             try {
                 try (var preparation = profile.scope("preparation", "Refresh game observations")) {
@@ -285,20 +327,14 @@ final class AcpAgent implements AutoCloseable {
                 }
                 try (var wait = profile.scope("agent_wait", "Agent / transport wait")) {
                     if (decision == null) {
-                        client.prompt(PromptRequest.text(sessionId, text));
+                        try {
+                            queuePrompt(text, requestId, true).join();
+                        } catch (CompletionException e) {
+                            if (e.getCause() instanceof RuntimeException cause) throw cause;
+                            throw e;
+                        }
                     } else {
-                        // The adapter queues prompts for this session; Forge can send the next one immediately.
-                        final var turn = client.async().prompt(PromptRequest.text(sessionId, text)).toFuture();
-                        pendingTurns.add(turn);
-                        turn.whenComplete((result, error) -> {
-                            pendingTurns.remove(turn);
-                            conversation.flush();
-                            if (error != null && !closed.get()) {
-                                Logger.warn(error, "ACP turn failed for request {}", requestId);
-                            }
-                        });
-                        // close() may race with starting the asynchronous request.
-                        if (closed.get()) turn.cancel(true);
+                        final var turn = queuePrompt(text, requestId, false);
                         try {
                             CompletableFuture.anyOf(decision, turn).join();
                         } catch (CompletionException e) {
@@ -317,6 +353,56 @@ final class AcpAgent implements AutoCloseable {
         }
     }
 
+    /** Buffer transport requests, while callers can still return as soon as an MCP decision is accepted. */
+    private CompletableFuture<PromptResponse> queuePrompt(String text, String requestId, boolean synchronous) {
+        final var turn = new CompletableFuture<PromptResponse>();
+        final var finished = new CompletableFuture<Void>();
+        final var transport = new AtomicReference<CompletableFuture<PromptResponse>>();
+        final CompletableFuture<Void> previous;
+        synchronized (promptQueueLock) {
+            if (closed.get()) throw new IllegalStateException("ACP session is closed");
+            previous = promptTail;
+            promptTail = finished;
+            pendingTurns.add(turn);
+        }
+        turn.whenComplete((result, error) -> {
+            try {
+                final var active = transport.get();
+                if (turn.isCancelled() && active != null) active.cancel(true);
+                conversation.flush();
+                if (error != null && !synchronous && !closed.get()) {
+                    Logger.warn(error, "ACP turn failed for request {}", requestId);
+                }
+            } finally {
+                pendingTurns.remove(turn);
+                // A failed response releases the queue too; it must not discard later prompts.
+                finished.complete(null);
+            }
+        });
+        // Dispatch outside the response reader and queue lock, including when earlier turns completed inline.
+        previous.whenCompleteAsync((ignored, previousError) -> {
+            if (closed.get() || turn.isDone()) {
+                turn.cancel(true);
+                return;
+            }
+            try {
+                final var request = PromptRequest.text(sessionId, text);
+                final var active = synchronous ? CompletableFuture.completedFuture(client.prompt(request))
+                        : client.async().prompt(request).toFuture();
+                transport.set(active);
+                active.whenComplete((result, error) -> {
+                    if (error == null) turn.complete(result);
+                    else turn.completeExceptionally(error);
+                });
+                // close() can cancel the buffered turn before its transport future has been assigned.
+                if (turn.isCancelled()) active.cancel(true);
+            } catch (Throwable e) {
+                turn.completeExceptionally(e);
+            }
+        });
+        return turn;
+    }
+
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) {
@@ -330,7 +416,11 @@ final class AcpAgent implements AutoCloseable {
                 try {
                     conversation.flush();
                 } finally {
-                    mcpServer.close();
+                    try {
+                        mcpServer.close();
+                    } finally {
+                        if (launch != null) launch.close();
+                    }
                 }
             }
         } finally {

@@ -32,6 +32,13 @@ public final class LobbySlot implements Serializable {
     private String aiProfile;
     private AiEngine aiEngine = AiEngine.FORGE;
     private String acpAgent;
+    private String llmFastModel;
+    private String llmPlanningModel;
+
+    public String getLlmFastModel() { return llmFastModel; }
+    public void setLlmFastModel(String model) { llmFastModel = model; }
+    public String getLlmPlanningModel() { return llmPlanningModel; }
+    public void setLlmPlanningModel(String model) { llmPlanningModel = model; }
 
     public String getAcpAgent() { return acpAgent; }
     public void setAcpAgent(String id) { acpAgent = id; }
@@ -61,6 +68,8 @@ public final class LobbySlot implements Serializable {
         changed |= setIfChanged(data.getAiOptions(),       this.aiOptions,      this::setAiOptions);
         changed |= setIfChanged(data.getAiEngine(),        getAiEngine(),       this::setAiEngine);
         changed |= setIfChanged(data.getAcpAgent(),        acpAgent,            this::setAcpAgent);
+        changed |= setIfChanged(data.getLlmFastModel(), llmFastModel, this::setLlmFastModel);
+        changed |= setIfChanged(data.getLlmPlanningModel(), llmPlanningModel, this::setLlmPlanningModel);
         changed |= setIfChanged(data.getSchemeDeckName(),  this.SchemeDeckName, this::setSchemeDeckName);
         changed |= setIfChanged(data.getAvatarVanguard(),  this.AvatarVanguard, this::setAvatarVanguard);
         changed |= setIfChanged(data.getPlanarDeckName(),  this.PlanarDeckName, this::setPlanarDeckName);

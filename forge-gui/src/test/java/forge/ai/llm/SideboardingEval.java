@@ -111,12 +111,12 @@ public class SideboardingEval extends PuzzleEvalSupport {
     }
 
     @Test(timeOut = 600_000)
-    public void readThePreviousLossAndBoardInArtifactAnswersThroughCodexAcp() throws Exception {
+    public void readThePreviousLossAndBoardInArtifactAnswersThroughAcp() throws Exception {
         final var rules = new GameRules(GameType.Constructed);
         rules.setGamesPerMatch(3);
         rules.setAISideboardingEnabled(true);
         final var match = new Match(rules, List.of(
-                new RegisteredPlayer(deck()).setPlayer(new LobbyPlayerAi("Codex", null)),
+                new RegisteredPlayer(deck()).setPlayer(new LobbyPlayerAi("LLM", null)),
                 new RegisteredPlayer(opponentDeck()).setPlayer(new LobbyPlayerAi("Opponent", null))), "Sideboarding eval");
         replayLoss(match);
         final var next = match.createGame();
@@ -128,7 +128,8 @@ public class SideboardingEval extends PuzzleEvalSupport {
         final String previousFlag = System.getProperty("forge.llm.profile");
         System.setProperty("forge.llm.profile", "true");
         final var profile = LlmMatchProfile.forGame(next);
-        final var controller = new PlayerControllerLlm(next, player, player.getLobbyPlayer()) {
+        final var controller = new PlayerControllerLlm(next, player, player.getLobbyPlayer(),
+                LlmEvalConfiguration.fromSystemProperties().agentFactory(player)) {
             @Override protected void onLlmFallback(String title) {
                 throw new AssertionError("A real MCP submission is required; fallback cannot pass this eval: " + title);
             }
@@ -137,10 +138,10 @@ public class SideboardingEval extends PuzzleEvalSupport {
         try {
             // No game-start event: sideboarding must initialize the session before opening hands exist.
             final List<PaperCard> main = controller.sideboard(deck, GameType.Constructed, player.getName());
-            Assert.assertNotNull(main, "Codex must submit a sideboard plan through MCP");
+            Assert.assertNotNull(main, "The LLM must submit a sideboard plan through MCP");
             final long answers = main.stream().filter(c -> ARTIFACT_ANSWERS.contains(c.getName())).count();
             Assert.assertTrue(answers > 0,
-                    "Codex must board in Nature's Claim or Creeping Corrosion after losing to artifacts. Plan: "
+                    "The LLM must board in Nature's Claim or Creeping Corrosion after losing to artifacts. Plan: "
                             + controller.getSideboardingReport());
             Assert.assertTrue(main.size() >= 60 && poolBefore.countAll() - main.size() <= 15);
             final var remaining = new CardPool();
@@ -165,9 +166,9 @@ public class SideboardingEval extends PuzzleEvalSupport {
                         && ObservePreviousGameLog.NAME.equals(start.get("name"))
                         && records.stream().anyMatch(end -> start.get("id").equals(end.get("id"))
                                 && "span_end".equals(end.get("event")) && "ok".equals(end.get("outcome")))),
-                "Codex must successfully read the previous game's log through MCP");
+                "The LLM must successfully read the previous game's log through MCP");
         Assert.assertTrue(records.stream().anyMatch(record -> "decision_accepted".equals(record.get("event"))
                         && SubmitSideboardPlan.NAME.equals(record.get("tool"))),
-                "Codex must submit the plan through the sideboarding tool");
+                "The LLM must submit the plan through the sideboarding tool");
     }
 }

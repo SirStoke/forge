@@ -40,11 +40,13 @@ public class LlmEngineShould {
 
         final UpdateLobbyPlayerEvent selection = UpdateLobbyPlayerEvent.create(
                 LobbySlotType.AI, "Opponent", 0, 0, 1, false, false,
-                Collections.emptySet(), "Default", AiEngine.LLM, "claude-acp");
+                Collections.emptySet(), "Default", AiEngine.LLM, "claude-acp", "fast-model", "planning-model");
         Assert.assertTrue(slot.apply(selection));
         slot.apply(UpdateLobbyPlayerEvent.nameUpdate("Renamed opponent"));
         Assert.assertEquals(slot.getAiEngine(), AiEngine.LLM);
         Assert.assertEquals(slot.getAcpAgent(), "claude-acp");
+        Assert.assertEquals(slot.getLlmFastModel(), "fast-model");
+        Assert.assertEquals(slot.getLlmPlanningModel(), "planning-model");
 
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ObjectOutputStream output = new ObjectOutputStream(bytes)) {
@@ -54,6 +56,8 @@ public class LlmEngineShould {
             final LobbySlot restored = (LobbySlot) input.readObject();
             Assert.assertEquals(restored.getAiEngine(), AiEngine.LLM);
             Assert.assertEquals(restored.getAcpAgent(), "claude-acp");
+            Assert.assertEquals(restored.getLlmFastModel(), "fast-model");
+            Assert.assertEquals(restored.getLlmPlanningModel(), "planning-model");
             Assert.assertEquals(restored.getName(), "Renamed opponent");
         }
 
@@ -64,8 +68,22 @@ public class LlmEngineShould {
         slot.apply(legacyUpdate);
         Assert.assertEquals(slot.getAiEngine(), AiEngine.LLM);
         Assert.assertEquals(slot.getAcpAgent(), "claude-acp");
+        Assert.assertEquals(slot.getLlmFastModel(), "fast-model");
+        Assert.assertEquals(slot.getLlmPlanningModel(), "planning-model");
         Assert.assertTrue(selection.clearServerOwnedFields());
         Assert.assertNull(selection.getAcpAgent(), "Remote clients must not configure the host's agent command");
+        Assert.assertNull(selection.getLlmFastModel());
+        Assert.assertNull(selection.getLlmPlanningModel());
+    }
+
+    @Test
+    public void stripRemoteModelSelectionsEvenWhenNoOtherHostSettingsArePresent() {
+        final var selection = UpdateLobbyPlayerEvent.create(null, null, -1, -1, -1,
+                false, false, null, null, null, null, "openai/fast", "openrouter/planner");
+        Assert.assertTrue(selection.clearServerOwnedFields());
+        Assert.assertNull(selection.getLlmFastModel());
+        Assert.assertNull(selection.getLlmPlanningModel());
+        Assert.assertFalse(selection.clearServerOwnedFields());
     }
 
     @Test

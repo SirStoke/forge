@@ -3,6 +3,9 @@ package forge.ai.llm;
 import com.agentclientprotocol.sdk.client.AcpAsyncClient;
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
+import com.agentclientprotocol.sdk.spec.AcpSchema.InitializeResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.AgentCapabilities;
+import com.agentclientprotocol.sdk.spec.AcpSchema.McpCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
@@ -111,6 +114,8 @@ public class SideboardingShould {
 
     private AcpSyncClient client(AtomicReference<String> url) {
         final var client = mock(AcpSyncClient.class);
+        when(client.initialize()).thenReturn(InitializeResponse.ok(new AgentCapabilities(false,
+                new McpCapabilities(true, false), null)));
         final var async = mock(AcpAsyncClient.class);
         when(client.async()).thenReturn(async);
         when(async.prompt(any())).thenAnswer(invocation -> Mono.fromCallable(() -> client.prompt(invocation.getArgument(0))));
@@ -119,11 +124,11 @@ public class SideboardingShould {
             url.set(((McpServerHttp) request.mcpServers().get(0)).url());
             return new NewSessionResponse("sideboard-test");
         });
-        final var model = SessionConfigSelect.builder().id("model").name("Model").currentValue(CodexAcpAgent.MODEL)
-                .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.MODEL, CodexAcpAgent.MODEL))).build();
+        final var model = SessionConfigSelect.builder().id("model").name("Model").currentValue(AcpAgent.MODEL)
+                .options(List.of(new SessionConfigSelectOption(AcpAgent.MODEL, AcpAgent.MODEL))).build();
         final var reasoning = SessionConfigSelect.builder().id("reasoning_effort").name("Reasoning effort")
-                .currentValue(CodexAcpAgent.REASONING_EFFORT).options(List.of(new SessionConfigSelectOption(
-                        CodexAcpAgent.REASONING_EFFORT, CodexAcpAgent.REASONING_EFFORT))).build();
+                .currentValue(AcpAgent.REASONING_EFFORT).options(List.of(new SessionConfigSelectOption(
+                        AcpAgent.REASONING_EFFORT, AcpAgent.REASONING_EFFORT))).build();
         when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(model, reasoning)));
         return client;
     }
@@ -145,7 +150,7 @@ public class SideboardingShould {
         final var starts = new AtomicInteger();
         final var controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(), () -> {
             starts.incrementAndGet();
-            return CodexAcpAgent.initialize(client, Path.of("."), player);
+            return AcpAgent.initialize(client, Path.of("."), player);
         });
         final var submittedId = new AtomicReference<String>();
         when(client.prompt(any())).thenAnswer(invocation -> {
@@ -201,7 +206,7 @@ public class SideboardingShould {
         final var client = client(new AtomicReference<>());
         final var controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(), () -> {
             starts.incrementAndGet();
-            return CodexAcpAgent.initialize(client, Path.of("."), player);
+            return AcpAgent.initialize(client, Path.of("."), player);
         }) {
             @Override protected void onLlmFallback(String title) { fallbacks.incrementAndGet(); }
         };

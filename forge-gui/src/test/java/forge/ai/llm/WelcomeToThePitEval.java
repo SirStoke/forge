@@ -44,7 +44,7 @@ public class WelcomeToThePitEval extends PuzzleEvalSupport {
     }
 
     @Test(timeOut = 900_000)
-    public void surviveAndWinOnTheNextUpkeepThroughCodexAcp() {
+    public void surviveAndWinOnTheNextUpkeepThroughAcp() {
         try (Scenario s = position()) {
             s.startLlms();
             s.declareBlocks();

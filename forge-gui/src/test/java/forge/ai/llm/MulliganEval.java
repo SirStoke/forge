@@ -23,7 +23,7 @@ import org.testng.annotations.Test;
 
 import java.util.List;
 
-/** Live Codex ACP evals; run with the llm-evals Maven profile, never the normal test command. */
+/** Live ACP evals; run with the llm-evals Maven profile, never the normal test command. */
 public class MulliganEval {
     @BeforeClass
     public void initializeCardDatabase() {
@@ -51,9 +51,9 @@ public class MulliganEval {
     }
 
     @Test(timeOut = 600_000)
-    public void mulliganSevenIslandsThroughCodexAcp() {
+    public void mulliganSevenIslandsThroughAcp() {
         final Game game = new Match(new GameRules(GameType.Constructed), List.of(
-                new RegisteredPlayer(blueDeck()).setPlayer(new LobbyPlayerAi("Codex", null)),
+                new RegisteredPlayer(blueDeck()).setPlayer(new LobbyPlayerAi("LLM", null)),
                 new RegisteredPlayer(blueDeck()).setPlayer(new LobbyPlayerAi("Opponent", null))),
                 "Seven Islands mulligan eval").createGame();
         final var player = game.getPlayers().get(0);
@@ -70,10 +70,11 @@ public class MulliganEval {
             }
         }
         game.setAge(GameStage.Mulligan);
-        final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer()) {
+        final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
+                LlmEvalConfiguration.fromSystemProperties().agentFactory(player)) {
             @Override
             protected boolean fallbackMulliganKeepHand(forge.game.player.Player firstPlayer, int cardsToReturn) {
-                throw new AssertionError("Codex must submit submit_mulligan_decision through MCP; "
+                throw new AssertionError("The LLM must submit submit_mulligan_decision through MCP; "
                         + "local fallback cannot pass this eval. Check the ACP conversation in the test output.");
             }
         };
@@ -83,9 +84,9 @@ public class MulliganEval {
             Assert.assertTrue(player.getCardsIn(ZoneType.Hand).stream().allMatch(c -> c.getName().equals("Island")));
             game.fireEvent(new GameEventGameStarted(GameType.Constructed, player, game.getPlayers()));
             Assert.assertNotNull(controller.decisionAgent(),
-                    "Real Codex ACP startup failed; check pnpm, Codex authentication, network access, and the logs");
+                    "Real ACP agent startup failed; check launch prerequisites, agent authentication, network access, and the logs");
             Assert.assertFalse(controller.mulliganKeepHand(player, 0),
-                    "Codex should mulligan an opening hand of seven Islands");
+                    "The LLM should mulligan an opening hand of seven Islands");
         } finally {
             game.fireEvent(new GameEventGameFinished());
         }

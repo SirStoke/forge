@@ -3,6 +3,8 @@ package forge.screens.home;
 import forge.ai.AiProfileUtil;
 import forge.ai.AiEngine;
 import forge.ai.llm.AcpAgentRegistry;
+import forge.ai.llm.AcpModels;
+import forge.gamemodes.match.AcpModelPreferences;
 import forge.deckchooser.FDeckChooser;
 
 import java.awt.*;
@@ -56,6 +58,7 @@ import forge.toolbox.FSkin;
 import forge.toolbox.FSkin.SkinColor;
 import forge.toolbox.FSkin.SkinImage;
 import forge.toolbox.FTextField;
+import forge.toolbox.FTextArea;
 import forge.util.Localizer;
 import forge.util.MyRandom;
 import forge.util.NameGenerator;
@@ -91,6 +94,12 @@ public class PlayerPanel extends FPanel {
     private final FLabel acpAgentLabel = new FLabel.Builder().text(localizer.getMessage("lblAcpAgent") + ":").build();
     private final FComboBoxWrapper<AcpAgentRegistry.Entry> acpAgentComboBox = new FComboBoxWrapper<>();
     private final FLabel acpAgentStatus = new FLabel.Builder().build();
+    private final FTextArea acpAgentWarning = new FTextArea();
+    private final FLabel fastModelLabel = new FLabel.Builder().text(localizer.getMessage("lblLlmFastModel") + ":").build();
+    private final FLabel planningModelLabel = new FLabel.Builder().text(localizer.getMessage("lblLlmPlanningModel") + ":").build();
+    private final FTextField fastModelInput = new FTextField.Builder().build();
+    private final FTextField planningModelInput = new FTextField.Builder().build();
+    private boolean updatingModels;
     private String selectedAcpAgent;
     private boolean acpDiscoveryStarted;
     private boolean acpDiscoveryFinished;
@@ -214,6 +223,7 @@ public class PlayerPanel extends FPanel {
                 return;
             }
             selectedAcpAgent = selected.id();
+            setModels(savedModels(index, selectedAcpAgent), true);
             final List<String> saved = new ArrayList<>(Arrays.asList(prefs.getPref(FPref.UI_LLM_ACP_AGENTS).split(",", -1)));
             while (saved.size() <= index) saved.add("");
             saved.set(index, selectedAcpAgent);
@@ -225,8 +235,25 @@ public class PlayerPanel extends FPanel {
         this.add(acpAgentLabel, "cell 0 2, sx 2, ax right, h 30px, hidemode 3");
         acpAgentComboBox.addTo(this, "cell 2 2, spanx 4, growx, h 30px, hidemode 3, wrap");
         this.add(acpAgentStatus, "cell 2 3, spanx 4, growx, w 0:pref, hidemode 3, wrap");
+        acpAgentWarning.setText(localizer.getMessage("lblAcpCodexSandboxWarning"));
+        acpAgentWarning.setToolTipText(localizer.getMessage("lblAcpCodexSandboxWarning"));
+        this.add(acpAgentWarning, "cell 0 4, spanx 6, growx, w 0:pref, hidemode 3, wrap");
 
-        int cellY = 4;
+        setModels(slot != null && slot.getLlmFastModel() != null
+                ? new AcpModels(slot.getLlmFastModel(), slot.getLlmPlanningModel()) : savedModels(index, selectedAcpAgent));
+        this.add(fastModelLabel, "cell 0 5, sx 2, ax right, hidemode 3");
+        this.add(fastModelInput, "cell 2 5, spanx 4, growx, w 0:pref, h 30px, hidemode 3, wrap");
+        this.add(planningModelLabel, "cell 0 6, sx 2, ax right, hidemode 3");
+        this.add(planningModelInput, "cell 2 6, spanx 4, growx, w 0:pref, h 30px, hidemode 3, wrap");
+        final FocusAdapter modelFocus = new FocusAdapter() {
+            @Override public void focusLost(FocusEvent e) { commitModels(); }
+        };
+        for (var input : List.of(fastModelInput, planningModelInput)) {
+            input.addActionListener(e -> commitModels());
+            input.addFocusListener(modelFocus);
+        }
+
+        int cellY = 7;
         if (prefs.getPrefBoolean(FPref.UI_ENABLE_AI_PICKER)) {
             this.add(aiPickerLabel, "cell 0 " + cellY + ", sx 2, ax right, w 40px, h 30px, hidemode 3");
             populateAiPickerComboBox();
@@ -514,6 +541,39 @@ public class PlayerPanel extends FPanel {
         return AcpAgentRegistry.entries().stream().anyMatch(entry -> entry.id().equals(id)) ? id : AcpAgentRegistry.CODEX;
     }
 
+    static AcpModels savedModels(int index, String agentId) {
+        return AcpModelPreferences.read(prefs.getPref(FPref.UI_LLM_MODELS), index, agentId);
+    }
+
+    public AcpModels getModels() { return new AcpModels(fastModelInput.getText(), planningModelInput.getText()); }
+
+    public void setModels(AcpModels models) {
+        setModels(models, false);
+    }
+
+    private void setModels(AcpModels models, boolean force) {
+        updatingModels = true;
+        try {
+            if ((force || !fastModelInput.hasFocus()) && !fastModelInput.getText().equals(models.fastModel())) fastModelInput.setText(models.fastModel());
+            if ((force || !planningModelInput.hasFocus()) && !planningModelInput.getText().equals(models.planningModel())) planningModelInput.setText(models.planningModel());
+        } finally {
+            updatingModels = false;
+        }
+    }
+
+    void commitModels() {
+        if (updatingModels || !mayEdit || !isAi() || getAiEngine() != AiEngine.LLM) return;
+        final var models = getModels();
+        if (!models.validationError(selectedAcpAgent).isEmpty()) return;
+        final String previous = prefs.getPref(FPref.UI_LLM_MODELS);
+        final String saved = AcpModelPreferences.write(previous, index, selectedAcpAgent, models);
+        if (!saved.equals(previous)) {
+            prefs.setPref(FPref.UI_LLM_MODELS, saved);
+            prefs.save();
+        }
+        lobby.firePlayerChangeListener(index);
+    }
+
     public String getAcpAgent() { return selectedAcpAgent; }
 
     public void setAcpAgent(String id) {
@@ -545,6 +605,8 @@ public class PlayerPanel extends FPanel {
 
     String acpUnavailableReason() {
         if (!isAi() || getAiEngine() != AiEngine.LLM) return "";
+        final String invalid = getModels().validationError(selectedAcpAgent);
+        if (!invalid.isEmpty()) return invalid;
         if (!acpDiscoveryFinished) return localizer.getMessage("lblCheckingAcpAgents");
         final var entry = acpAgentComboBox.getSelectedItem();
         return entry == null ? localizer.getMessage("lblChooseAcpAgent") : entry.unavailableReason();
@@ -555,7 +617,18 @@ public class PlayerPanel extends FPanel {
         acpAgentLabel.setVisible(visible);
         acpAgentComboBox.setVisible(visible);
         acpAgentStatus.setVisible(visible);
+        acpAgentWarning.setVisible(visible && AcpAgentRegistry.CODEX.equals(selectedAcpAgent));
         acpAgentComboBox.setEnabled(visible && mayEdit && acpDiscoveryFinished);
+        fastModelLabel.setVisible(visible);
+        planningModelLabel.setVisible(visible);
+        fastModelInput.setVisible(visible);
+        planningModelInput.setVisible(visible);
+        fastModelInput.setEditable(mayEdit);
+        planningModelInput.setEditable(mayEdit);
+        final String modelHelp = localizer.getMessage("opencode".equals(selectedAcpAgent)
+                ? "lblLlmOpenCodeModelHelp" : "lblLlmModelHelp");
+        fastModelInput.setToolTipText(modelHelp);
+        planningModelInput.setToolTipText(modelHelp);
         if (!visible) return;
         if (!acpDiscoveryStarted) {
             acpDiscoveryStarted = true;

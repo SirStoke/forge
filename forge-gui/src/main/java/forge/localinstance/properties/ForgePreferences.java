@@ -33,6 +33,7 @@ public class ForgePreferences extends AbstractPreferences<ForgePreferences.FPref
     public enum FPref implements AbstractPreferences.IPref {
         PLAYER_NAME (""),
         UI_LLM_ACP_AGENTS (""),
+        UI_LLM_MODELS (""),
 
         // Desktop only
         UI_COMPACT_MAIN_MENU ("false"),

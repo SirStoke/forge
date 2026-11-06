@@ -8,7 +8,7 @@ import org.testng.annotations.Test;
 /** Easy: both players use their normal LLM controllers from a prepared combat position. */
 public class RumbleInTheJungleEval extends PuzzleEvalSupport {
     @Test(timeOut = 900_000)
-    public void surviveTheTramplerAndAttackForLethalThroughCodexAcp() {
+    public void surviveTheTramplerAndAttackForLethalThroughAcp() {
         try (Scenario s = new Scenario("Rumble in the Jungle", 2, 2)) {
             s.put(s.player, ZoneType.Battlefield, "Runeclaw Bear");
             s.put(s.player, ZoneType.Battlefield, "Barony Vampire");

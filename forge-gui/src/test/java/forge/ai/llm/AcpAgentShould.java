@@ -52,6 +52,8 @@ import org.testng.annotations.Test;
 import reactor.core.publisher.Mono;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.Set;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
@@ -107,6 +109,9 @@ public class AcpAgentShould {
     @Test
     public void useOtherHarnessDefaultsAndStillProvideForgeTools() {
         final AcpSyncClient client = clientSelecting("unused");
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session",
+                new SessionModeState(AcpAgentSettings.OPENCODE_MODE,
+                        List.of(new SessionMode(AcpAgentSettings.OPENCODE_MODE, "Forge", null)))));
         try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "opencode")) {
             verify(client, times(0)).setSessionConfigOption(any());
             final ArgumentCaptor<NewSessionRequest> request = ArgumentCaptor.forClass(NewSessionRequest.class);
@@ -131,100 +136,284 @@ public class AcpAgentShould {
     }
 
     @Test
-    public void approveUnattendedToolCallsUsingAnOfferedPermissionOption() {
+    public void retainCodexWorkaroundButRejectResidualPermissionRequestsForRestrictedAgents() {
         final var options = List.of(new PermissionOption("reject", "Reject", PermissionOptionKind.REJECT_ONCE),
                 new PermissionOption("always", "Allow always", PermissionOptionKind.ALLOW_ALWAYS),
                 new PermissionOption("once", "Allow once", PermissionOptionKind.ALLOW_ONCE));
         final var game = new ToolCallUpdate("call", "mcp__mtg-forge__submit_choice", null, null);
-        Assert.assertEquals(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", game, options)).outcome(),
-                new PermissionSelected("once"));
         final var shell = new ToolCallUpdate("call", "Run shell command", null, null);
-        Assert.assertEquals(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", shell, options)).outcome(),
-                new PermissionSelected("once"));
-        Assert.assertEquals(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", shell,
-                List.of(options.get(1)))).outcome(), new PermissionSelected("always"));
-        Assert.assertTrue(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", shell,
-                List.of(options.get(0)))).outcome() instanceof PermissionCancelled);
-    }
-
-    @Test
-    public void configureEachHarnessWithoutDroppingTheRegistryLaunchRecipe() {
-        for (String id : List.of("codex-acp", "claude-acp", "opencode", "github-copilot")) {
-            final var entry = new AcpAgentRegistry.Entry(id, id, "1.0", List.of("runner", "registry-package", "--registry-flag"),
-                    Map.of("REGISTRY_ENV", "preserved"), "");
-            final var parameters = AcpAgentSettings.launchParameters(entry);
-            Assert.assertEquals(parameters.getCommand(), "runner");
-            Assert.assertEquals(parameters.getArgs(), List.of("registry-package", "--registry-flag"));
-            Assert.assertEquals(parameters.getEnv().get("REGISTRY_ENV"), "preserved");
-            if (id.equals("codex-acp")) {
-                Assert.assertEquals(parameters.getEnv().get("INITIAL_AGENT_MODE"), "agent-full-access");
-            } else {
-                Assert.assertFalse(parameters.getEnv().containsKey("INITIAL_AGENT_MODE"));
-            }
-            if (id.equals("opencode")) Assert.assertEquals(parameters.getEnv().get("OPENCODE_PERMISSION"), "{\"*\":\"allow\"}");
-            if (id.equals("github-copilot")) {
-                Assert.assertEquals(parameters.getEnv().get("COPILOT_ALLOW_ALL"), "true");
-                Assert.assertEquals(parameters.getEnv().get("GITHUB_COPILOT_ACP_USE_CLI"), "1");
-                Assert.assertFalse(parameters.getArgs().contains("--no-sandbox"), "The registry adapter does not forward CLI flags");
+        Assert.assertEquals(AcpAgentSettings.approvePermission(AcpAgentRegistry.CODEX,
+                new RequestPermissionRequest("session", shell, options)).outcome(), new PermissionSelected("once"));
+        Assert.assertEquals(AcpAgentSettings.approvePermission(AcpAgentRegistry.CODEX,
+                new RequestPermissionRequest("session", shell, List.of(options.get(1)))).outcome(), new PermissionSelected("always"));
+        Assert.assertTrue(AcpAgentSettings.approvePermission(AcpAgentRegistry.CODEX,
+                new RequestPermissionRequest("session", shell, List.of(options.get(0)))).outcome() instanceof PermissionCancelled);
+        for (String id : List.of("claude-acp", "opencode", "github-copilot", "unknown")) {
+            for (var tool : List.of(game, shell)) {
+                Assert.assertTrue(AcpAgentSettings.approvePermission(id,
+                        new RequestPermissionRequest("session", tool, options)).outcome() instanceof PermissionCancelled,
+                        "Native scoped approval must not override a remaining safety/policy prompt: " + id);
             }
         }
     }
 
     @Test
-    public void disableClaudeSandboxAndSelectBypassBeforePrompting() {
+    public void configureEachHarnessWithoutDroppingTheRegistryLaunchRecipe() throws Exception {
+        for (String id : List.of("codex-acp", "claude-acp", "opencode", "github-copilot")) {
+            final var command = List.of("runner", "dlx", "@github/copilot-language-server@1.566.0", "--registry-flag");
+            final var entry = new AcpAgentRegistry.Entry(id, id, "1.0", command, Map.of("REGISTRY_ENV", "preserved"), "");
+            Path launcherDirectory;
+            try (var launch = AcpAgentSettings.prepareLaunch(entry)) {
+                launcherDirectory = launch.directory();
+                final var parameters = launch.parameters();
+                Assert.assertEquals(parameters.getCommand(), "runner");
+                Assert.assertEquals(parameters.getArgs(), command.subList(1, command.size()));
+                Assert.assertEquals(parameters.getEnv().get("REGISTRY_ENV"), "preserved");
+                Assert.assertEquals(parameters.getEnv().get("INITIAL_AGENT_MODE"),
+                        id.equals("codex-acp") ? "agent-full-access" : null);
+                if (id.equals("opencode")) {
+                    final var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    final var permission = mapper.readTree(parameters.getEnv().get("OPENCODE_PERMISSION"));
+                    Assert.assertEquals(permission.path("*").asText(), "deny");
+                    Assert.assertEquals(permission.size(), ForgeMcpServer.TOOL_NAMES.size() + 2);
+                    Assert.assertEquals(permission.path("task").path("*").asText(), "deny");
+                    Assert.assertEquals(permission.path("task").path(AcpAgentSettings.OPENCODE_PLANNER).asText(), "allow");
+                    ForgeMcpServer.TOOL_NAMES.forEach(name ->
+                            Assert.assertEquals(permission.path("mtg-forge_" + name).asText(), "allow"));
+                    final var config = mapper.readTree(parameters.getEnv().get("OPENCODE_CONFIG_CONTENT"));
+                    Assert.assertEquals(config.path("default_agent").asText(), AcpAgentSettings.OPENCODE_MODE);
+                    Assert.assertEquals(config.path("agent").path(AcpAgentSettings.OPENCODE_MODE).path("permission"), permission);
+                }
+                if (id.equals("github-copilot")) {
+                    Assert.assertEquals(parameters.getEnv().get("COPILOT_ALLOW_ALL"), "false");
+                    Assert.assertEquals(parameters.getEnv().get("COPILOT_ASSISTED_APPROVAL"), "false");
+                    Assert.assertEquals(parameters.getEnv().get("GITHUB_COPILOT_ACP_USE_CLI"), "1");
+                    final var script = Files.readString(Path.of(parameters.getEnv().get("COPILOT_CLI_PATH")));
+                    Assert.assertTrue(script.contains("--available-tools=mtg-forge-submit_choice"));
+                    Assert.assertTrue(script.contains("--allow-tool=mtg-forge"));
+                    Assert.assertFalse(script.contains("--no-sandbox"));
+                    Assert.assertFalse(script.contains("--allow-all"));
+                }
+            }
+            if (launcherDirectory != null) Assert.assertFalse(Files.exists(launcherDirectory));
+        }
+    }
+
+    @Test
+    public void restrictClaudeToForgeToolsAndSelectDefaultPermissionsBeforePrompting() {
         final var client = clientSelecting("unused");
-        final var mode = SessionConfigSelect.builder().id("mode").name("Permissions").currentValue("default")
+        final var unsafe = SessionConfigSelect.builder().id("mode").name("Permissions").currentValue("bypassPermissions")
                 .options(List.of(new SessionConfigSelectOption("default", "Default"),
                         new SessionConfigSelectOption("bypassPermissions", "Bypass"))).build();
-        final var selected = SessionConfigSelect.builder().id("mode").name("Permissions").currentValue("bypassPermissions")
-                .options(List.of(new SessionConfigSelectOption("bypassPermissions", "Bypass"))).build();
-        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(mode)));
+        final var selected = SessionConfigSelect.builder().id("mode").name("Permissions").currentValue("default")
+                .options(List.of(new SessionConfigSelectOption("default", "Default"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(unsafe)));
         when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(selected)));
         try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "claude-acp")) {
             final var order = inOrder(client);
             order.verify(client).initialize();
             final var request = ArgumentCaptor.forClass(NewSessionRequest.class);
             order.verify(client).newSession(request.capture());
-            Assert.assertEquals(request.getValue().meta(), Map.of("claudeCode", Map.of("options", Map.of(
-                    "allowDangerouslySkipPermissions", true, "sandbox", Map.of("enabled", false)))));
-            order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "mode", "bypassPermissions"));
+            final var meta = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(request.getValue().meta());
+            final var sdk = meta.path("claudeCode").path("options");
+            Assert.assertEquals(sdk.path("tools").toString(), "[\"Agent\",\"TaskStop\"]");
+            Assert.assertTrue(sdk.path("strictMcpConfig").asBoolean());
+            Assert.assertFalse(sdk.path("allowDangerouslySkipPermissions").asBoolean());
+            Assert.assertEquals(sdk.path("settingSources").size(), 0);
+            final var planner = sdk.path("agents").path(AcpAgentSettings.CLAUDE_PLANNER);
+            Assert.assertEquals(planner.path("model").asText(), "inherit");
+            Assert.assertEquals(planner.path("tools").size(), ForgeMcpServer.READ_ONLY_TOOL_NAMES.size());
+            Assert.assertFalse(planner.path("tools").toString().contains("submit_choice"));
+            order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "mode", "default"));
             order.verify(client).prompt(any());
         }
     }
 
     @Test
-    public void supportClaudeLegacyModesAndStopIfBypassIsUnavailable() {
+    public void supportClaudeLegacyModesAndStopIfDefaultIsUnavailable() {
         final var client = clientSelecting("unused");
         when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session",
-                new SessionModeState("default", List.of(new SessionMode("bypassPermissions", "Bypass", null)))));
+                new SessionModeState("bypassPermissions", List.of(new SessionMode("default", "Default", null)))));
         when(client.setSessionMode(any())).thenReturn(new SetSessionModeResponse());
         try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "claude-acp")) {
-            verify(client).setSessionMode(new SetSessionModeRequest("test-session", "bypassPermissions"));
+            verify(client).setSessionMode(new SetSessionModeRequest("test-session", "default"));
         }
-        final var blocked = clientSelecting("unused");
-        final var error = Assert.expectThrows(IllegalStateException.class,
-                () -> AcpAgent.initializeForAgent(blocked, WORKING_DIRECTORY, null, "claude-acp"));
-        Assert.assertTrue(error.getMessage().contains("bypassPermissions"));
-        verify(blocked, times(0)).prompt(any());
-        verify(blocked).close();
+        for (String id : List.of("claude-acp", "opencode")) {
+            final var blocked = clientSelecting("unused");
+            final var error = Assert.expectThrows(IllegalStateException.class,
+                    () -> AcpAgent.initializeForAgent(blocked, WORKING_DIRECTORY, null, id));
+            Assert.assertTrue(error.getMessage().contains("does not offer"));
+            verify(blocked, times(0)).prompt(any());
+            verify(blocked).close();
+        }
     }
 
     @Test
-    public void enableCopilotAllowAllAndRejectAnUnacknowledgedPermissionChange() {
+    public void disableCopilotAllowAllAndRejectAnUnacknowledgedPermissionChange() {
         final var client = clientSelecting("unused");
         final var off = SessionConfigSelect.builder().id("allow_all").name("Allow all").currentValue("off")
-                .options(List.of(new SessionConfigSelectOption("off", "Off"), new SessionConfigSelectOption("on", "On"))).build();
+                .options(List.of(new SessionConfigSelectOption("off", "Off"))).build();
         final var on = SessionConfigSelect.builder().id("allow_all").name("Allow all").currentValue("on")
-                .options(List.of(new SessionConfigSelectOption("on", "On"))).build();
-        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(off)));
-        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(on)));
-        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "github-copilot")) {
-            verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "allow_all", "on"));
-        }
+                .options(List.of(new SessionConfigSelectOption("off", "Off"), new SessionConfigSelectOption("on", "On"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(on)));
         when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(off)));
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "github-copilot")) {
+            verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "allow_all", "off"));
+        }
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(on)));
         final var error = Assert.expectThrows(IllegalStateException.class,
                 () -> AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "github-copilot"));
-        Assert.assertTrue(error.getMessage().contains("did not select allow_all=on"));
+        Assert.assertTrue(error.getMessage().contains("did not select allow_all=off"));
+    }
+
+    @Test
+    public void selectOpenCodeGameAgentBeforePromptingAndStopIfTheAgentIsRefused() {
+        final var client = clientSelecting("unused");
+        final var build = SessionConfigSelect.builder().id("mode").name("Agent").currentValue("build")
+                .options(List.of(new SessionConfigSelectOption("build", "Build"),
+                        new SessionConfigSelectOption(AcpAgentSettings.OPENCODE_MODE, "Forge"))).build();
+        final var game = SessionConfigSelect.builder().id("mode").name("Agent").currentValue(AcpAgentSettings.OPENCODE_MODE)
+                .options(List.of(new SessionConfigSelectOption(AcpAgentSettings.OPENCODE_MODE, "Forge"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(build)));
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(game)));
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "opencode")) {
+            final var order = inOrder(client);
+            order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select(
+                    "test-session", "mode", AcpAgentSettings.OPENCODE_MODE));
+            order.verify(client).prompt(any());
+        }
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(build)));
+        final var error = Assert.expectThrows(IllegalStateException.class,
+                () -> AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "opencode"));
+        Assert.assertTrue(error.getMessage().contains("did not select mode="));
+    }
+
+    @Test
+    public void forwardCopilotArgumentsThroughTheRegistryLauncherWithoutShellExpansion() throws Exception {
+        if (java.io.File.separatorChar == '\\') return;
+        final var directory = Files.createTempDirectory("forge-copilot-launcher-test-");
+        try {
+            final var runner = directory.resolve("fake runner ' $cash");
+            Files.writeString(runner, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
+            Assert.assertTrue(runner.toFile().setExecutable(true));
+            final var launcher = directory.resolve("copilot");
+            Files.writeString(launcher, AcpAgentSettings.copilotLauncher(
+                    List.of(runner.toString(), "exec", "--yes", "--", "@github/copilot-language-server@1.566.0", "--acp"), false));
+            Assert.assertTrue(launcher.toFile().setExecutable(true));
+            final var process = new ProcessBuilder(launcher.toString(), "--acp", "--stdio", "argument with spaces").start();
+            final var arguments = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).lines().toList();
+            Assert.assertEquals(process.waitFor(), 0);
+            Assert.assertEquals(arguments.subList(0, 4), List.of("exec", "--yes", "--", "@github/copilot@1.0.103"));
+            Assert.assertEquals(arguments.subList(arguments.size() - 3, arguments.size()),
+                    List.of("--acp", "--stdio", "argument with spaces"));
+            Assert.assertTrue(arguments.contains("--available-tools=" + String.join(",",
+                    java.util.stream.Stream.concat(ForgeMcpServer.TOOL_NAMES.stream().map(name -> "mtg-forge-" + name),
+                            AcpAgentSettings.COPILOT_DELEGATION_TOOLS.stream()).toList())));
+            Assert.assertTrue(arguments.contains("--allow-tool=mtg-forge"));
+            Assert.assertFalse(arguments.contains("--no-sandbox"));
+        } finally {
+            forge.util.FileUtil.deleteDirectory(directory.toFile());
+        }
+        final var windows = AcpAgentSettings.copilotLauncher(
+                List.of("C:\\Program Files\\100% npm\\npx.cmd", "--yes", "@github/copilot-language-server@1.566.0", "--acp"), true);
+        Assert.assertTrue(windows.contains("100%% npm"));
+        Assert.assertTrue(windows.endsWith(" %*\r\n"));
+        Assert.expectThrows(IllegalStateException.class,
+                () -> AcpAgentSettings.copilotLauncher(List.of("unrecognized", "--acp"), false));
+    }
+
+    @Test
+    public void keepHarnessAllowListsInSyncWithTheMcpToolsActuallyRegistered() {
+        try (var server = ForgeMcpServer.start();
+             var mcp = McpClient.sync(HttpClientStreamableHttpTransport.builder(server.getUrl()).build()).build()) {
+            mcp.initialize();
+            Assert.assertEquals(mcp.listTools().tools().stream().map(io.modelcontextprotocol.spec.McpSchema.Tool::name)
+                    .collect(java.util.stream.Collectors.toSet()), Set.copyOf(ForgeMcpServer.TOOL_NAMES));
+        }
+    }
+
+    @Test
+    public void selectTheFastModelAndDescribeTheChosenPlannerBeforeSendingTheFirstPrompt() {
+        for (String id : List.of("opencode", "claude-acp", "github-copilot", AcpAgentRegistry.CODEX)) {
+            final var models = new AcpModels(id.equals("opencode") ? "openrouter/z-ai/glm-5.3" : "fast-model",
+                    id.equals("opencode") ? "openai/gpt-6.1-sol" : "planning-model");
+            final var client = clientSelecting(models.fastModel());
+            if (!id.equals(AcpAgentRegistry.CODEX)) {
+                final String mode = id.equals("opencode") ? AcpAgentSettings.OPENCODE_MODE : "default";
+                final var model = SessionConfigSelect.builder().id("model").name("Model").currentValue("previous")
+                        .options(List.of(new SessionConfigSelectOption("previous", "Previous"),
+                                new SessionConfigSelectOption(models.fastModel(), "Selected"))).build();
+                final var selected = SessionConfigSelect.builder().id("model").name("Model").currentValue(models.fastModel())
+                        .options(List.of(new SessionConfigSelectOption(models.fastModel(), "Selected"))).build();
+                when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session",
+                        new SessionModeState(mode, List.of(new SessionMode(mode, mode, null))), List.of(model)));
+                when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(selected)));
+            }
+            try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, id, models)) {
+                Assert.assertEquals(agent.options().model(), models.fastModel());
+                final var order = inOrder(client);
+                order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "model", models.fastModel()));
+                final var prompt = ArgumentCaptor.forClass(PromptRequest.class);
+                order.verify(client).prompt(prompt.capture());
+                Assert.assertTrue(prompt.getValue().text().contains(models.planningModel()));
+                Assert.assertFalse(prompt.getValue().text().contains("&#"), "Provider/model IDs must remain literal");
+            }
+        }
+    }
+
+    @Test
+    public void applyOpenCodeFragmentEffortAfterTheModelChangesAndBeforeTheFirstPrompt() {
+        final var client = clientSelecting("unused");
+        final String modelId = "openrouter/z-ai/glm-5.3";
+        final var oldModel = SessionConfigSelect.builder().id("model").name("Model").currentValue("openai/previous")
+                .options(List.of(new SessionConfigSelectOption("openai/previous", "Previous"),
+                        new SessionConfigSelectOption(modelId, "Selected"))).build();
+        final var model = SessionConfigSelect.builder().id("model").name("Model").currentValue(modelId)
+                .options(List.of(new SessionConfigSelectOption(modelId, "Selected"))).build();
+        final var oldEffort = SessionConfigSelect.builder().id("effort").name("Effort").currentValue("low")
+                .options(List.of(new SessionConfigSelectOption("low", "Low"))).build();
+        final var effort = SessionConfigSelect.builder().id("effort").name("Effort").currentValue("default")
+                .options(List.of(new SessionConfigSelectOption("default", "Default"),
+                        new SessionConfigSelectOption("high", "High"))).build();
+        final var selectedEffort = SessionConfigSelect.builder().id("effort").name("Effort").currentValue("high")
+                .options(List.of(new SessionConfigSelectOption("high", "High"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session",
+                new SessionModeState(AcpAgentSettings.OPENCODE_MODE,
+                        List.of(new SessionMode(AcpAgentSettings.OPENCODE_MODE, "Forge", null))), List.of(oldModel, oldEffort)));
+        when(client.setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "model", modelId)))
+                .thenReturn(new SetSessionConfigOptionResponse(List.of(model, effort)));
+        when(client.setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "effort", "high")))
+                .thenReturn(new SetSessionConfigOptionResponse(List.of(model, selectedEffort)));
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "opencode",
+                new AcpModels(modelId + "#high", "openai/gpt-6.1-sol#low"))) {
+            final var order = inOrder(client);
+            order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "model", modelId));
+            order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "effort", "high"));
+            order.verify(client).prompt(any());
+        }
+        when(client.setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "effort", "high")))
+                .thenReturn(new SetSessionConfigOptionResponse(List.of(model, effort)));
+        org.mockito.Mockito.clearInvocations(client);
+        final var error = Assert.expectThrows(IllegalStateException.class, () -> AcpAgent.initializeForAgent(client,
+                WORKING_DIRECTORY, null, "opencode", new AcpModels(modelId + "#high", "")));
+        Assert.assertTrue(error.getMessage().contains("did not select effort=high"));
+        verify(client, times(0)).prompt(any());
+        verify(client).close();
+    }
+
+    @Test
+    public void stopBeforePromptingIfAnExplicitFastModelCannotBeSelected() {
+        final var client = clientSelecting("unused");
+        final var previous = SessionConfigSelect.builder().id("model").name("Model").currentValue("openai/previous")
+                .options(List.of(new SessionConfigSelectOption("openai/previous", "Previous"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session",
+                new SessionModeState(AcpAgentSettings.OPENCODE_MODE,
+                        List.of(new SessionMode(AcpAgentSettings.OPENCODE_MODE, "Forge", null))), List.of(previous)));
+        final var error = Assert.expectThrows(IllegalStateException.class, () -> AcpAgent.initializeForAgent(client,
+                WORKING_DIRECTORY, null, "opencode", new AcpModels("openrouter/not-configured", "")));
+        Assert.assertTrue(error.getMessage().contains("does not offer model=openrouter/not-configured"));
+        verify(client, times(0)).prompt(any());
+        verify(client).close();
     }
 
     @Test
@@ -264,6 +453,129 @@ public class AcpAgentShould {
         agent.close();
         verify(client).close();
         verifyNoMoreInteractions(client);
+    }
+
+    @Test
+    public void bufferPromptsInOrderAndContinueAfterAResponseFailsWithoutCancellingAcceptedDecisions() throws Exception {
+        final var client = clientSelecting(AcpAgent.MODEL);
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
+            final var requests = new java.util.concurrent.LinkedBlockingQueue<String>();
+            final var first = new CompletableFuture<PromptResponse>();
+            final var second = new CompletableFuture<PromptResponse>();
+            final var third = new CompletableFuture<PromptResponse>();
+            final var turns = Map.of("First", first, "Second", second, "Third", third);
+            when(client.async().prompt(any())).thenAnswer(invocation -> {
+                final PromptRequest request = invocation.getArgument(0);
+                requests.add(request.text());
+                return Mono.fromFuture(turns.get(request.text()));
+            });
+            agent.prompt("First", "one", "choice", "First", CompletableFuture.completedFuture("accepted"));
+            Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "First");
+            agent.prompt("Second", "two", "choice", "Second", CompletableFuture.completedFuture("accepted"));
+            agent.prompt("Third", "three", "choice", "Third", CompletableFuture.completedFuture("accepted"));
+            verify(client.async(), times(1)).prompt(any());
+            Assert.assertFalse(first.isDone(), "Accepting decisions must not stop the active response");
+            Assert.assertFalse(second.isDone());
+            Assert.assertFalse(third.isDone());
+
+            first.completeExceptionally(new IllegalStateException("First response failed after its decision was accepted"));
+            Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Second");
+            verify(client.async(), times(2)).prompt(any());
+            second.complete(null);
+            Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Third");
+            third.complete(null);
+            Assert.assertFalse(first.isCancelled());
+            Assert.assertFalse(second.isCancelled());
+            Assert.assertFalse(third.isCancelled());
+        }
+    }
+
+    @Test
+    public void releaseAnAcceptedMcpDecisionEvenWhileItsPromptIsBuffered() throws Exception {
+        final var client = clientSelecting(AcpAgent.MODEL);
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
+            final var session = ArgumentCaptor.forClass(NewSessionRequest.class);
+            verify(client).newSession(session.capture());
+            final String url = ((McpServerHttp) session.getValue().mcpServers().get(0)).url();
+            final var transport = HttpClientStreamableHttpTransport
+                    .builder(URI.create(url).resolve("/").toString()).endpoint("/mcp").build();
+            try (var mcp = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
+                mcp.initialize();
+                final var requests = new java.util.concurrent.LinkedBlockingQueue<String>();
+                final var active = new CompletableFuture<PromptResponse>();
+                final var buffered = new CompletableFuture<PromptResponse>();
+                when(client.async().prompt(any())).thenAnswer(invocation -> {
+                    final PromptRequest request = invocation.getArgument(0);
+                    requests.add(request.text());
+                    return Mono.fromFuture("Active".equals(request.text()) ? active : buffered);
+                });
+                agent.prompt("Active", "active", "priority", "Active", CompletableFuture.completedFuture("accepted"));
+                Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Active");
+                final var decision = new CompletableFuture<Boolean>();
+                final String requestId = agent.mulliganDecision().register(keep -> {
+                    decision.complete(keep);
+                    return "Accepted";
+                });
+                final var game = CompletableFuture.runAsync(() -> agent.prompt(
+                        "Buffered", requestId, "mulligan", "Buffered", decision));
+                Assert.assertFalse(mcp.callTool(new CallToolRequest("submit_mulligan_decision",
+                        Map.of("requestId", requestId, "keep", true))).isError());
+                game.get(5, TimeUnit.SECONDS);
+                Assert.assertTrue(decision.join());
+                Assert.assertFalse(active.isDone(), "An accepted tool decision must never wait for the previous response");
+                Assert.assertFalse(buffered.isDone());
+                verify(client.async(), times(1)).prompt(any());
+
+                active.complete(null);
+                Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Buffered",
+                        "Even an already-accepted buffered prompt must be retained");
+                buffered.complete(null);
+            }
+        }
+    }
+
+    @Test
+    public void cancelActiveAndBufferedPromptsOnlyWhenTheSessionCloses() throws Exception {
+        final var client = clientSelecting(AcpAgent.MODEL);
+        final var active = new CompletableFuture<PromptResponse>();
+        final var started = new CompletableFuture<Void>();
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
+            when(client.async().prompt(any())).thenAnswer(invocation -> {
+                started.complete(null);
+                return Mono.fromFuture(active);
+            });
+            agent.prompt("Active", "active", "choice", "Active", CompletableFuture.completedFuture("accepted"));
+            started.get(5, TimeUnit.SECONDS);
+            agent.prompt("Buffered", "buffered", "choice", "Buffered", CompletableFuture.completedFuture("accepted"));
+            Assert.assertFalse(active.isDone());
+            agent.close();
+            Assert.expectThrows(java.util.concurrent.CancellationException.class, () -> active.get(5, TimeUnit.SECONDS));
+            Assert.assertTrue(active.isCancelled());
+            verify(client.async(), times(1)).prompt(any());
+            Assert.expectThrows(IllegalStateException.class, () -> agent.prompt("After close"));
+        }
+    }
+
+    @Test
+    public void bufferPromptsWithoutADecisionBehindTheActiveResponseToo() throws Exception {
+        final var client = clientSelecting(AcpAgent.MODEL);
+        final var active = new CompletableFuture<PromptResponse>();
+        final var started = new CompletableFuture<Void>();
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
+            when(client.async().prompt(any())).thenAnswer(invocation -> {
+                started.complete(null);
+                return Mono.fromFuture(active);
+            });
+            agent.prompt("Active", "active", "choice", "Active", CompletableFuture.completedFuture("accepted"));
+            started.get(5, TimeUnit.SECONDS);
+            final var waiting = CompletableFuture.runAsync(() -> agent.prompt("Wait for completion"));
+            Assert.expectThrows(java.util.concurrent.TimeoutException.class, () -> waiting.get(100, TimeUnit.MILLISECONDS));
+            verify(client, times(0)).prompt(PromptRequest.text("test-session", "Wait for completion"));
+            active.complete(null);
+            waiting.get(5, TimeUnit.SECONDS);
+            verify(client).prompt(PromptRequest.text("test-session", "Wait for completion"));
+            Assert.assertFalse(active.isCancelled());
+        }
     }
 
     @Test

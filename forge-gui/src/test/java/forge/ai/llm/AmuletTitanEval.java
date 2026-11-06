@@ -38,7 +38,7 @@ public class AmuletTitanEval extends PuzzleEvalSupport {
     }
 
     @Test(timeOut = 900_000)
-    public void castTitanGiveItHasteAndAttackForLethalThroughCodexAcp() {
+    public void castTitanGiveItHasteAndAttackForLethalThroughAcp() {
         try (Scenario s = position()) {
             s.startLlms();
             s.run(() -> s.game.getPhaseHandler().getTurn() > 1 || s.game.getPhaseHandler().is(PhaseType.CLEANUP));

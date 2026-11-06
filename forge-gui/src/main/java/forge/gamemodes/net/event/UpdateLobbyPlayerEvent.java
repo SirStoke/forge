@@ -35,8 +35,25 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
     private String aiProfile = null;
     private AiEngine aiEngine = null;
     private String acpAgent = null;
+    private String llmFastModel = null;
+    private String llmPlanningModel = null;
+
+    public String getLlmFastModel() { return llmFastModel; }
+    public String getLlmPlanningModel() { return llmPlanningModel; }
 
     public String getAcpAgent() { return acpAgent; }
+
+    public static UpdateLobbyPlayerEvent create(final LobbySlotType type, final String name, final int avatarIndex,
+            final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isDevMode,
+            final Set<AIOption> aiOptions, final String aiProfile, final AiEngine aiEngine, final String acpAgent,
+            final String fastModel, final String planningModel) {
+        final var event = create(type, name, avatarIndex, sleeveIndex, team, isArchenemy, isDevMode,
+                aiOptions, aiProfile, aiEngine, acpAgent);
+        event.llmFastModel = fastModel;
+        event.llmPlanningModel = planningModel;
+        return event;
+    }
+
 
     public static UpdateLobbyPlayerEvent create(final LobbySlotType type, final String name, final int avatarIndex,
             final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isDevMode,
@@ -164,7 +181,8 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
      * field added later.
      */
     public boolean clearServerOwnedFields() {
-        if (type == null && aiOptions == null && aiProfile == null && aiEngine == null && acpAgent == null) {
+        if (type == null && aiOptions == null && aiProfile == null && aiEngine == null && acpAgent == null
+                && llmFastModel == null && llmPlanningModel == null) {
             return false;
         }
         type = null;
@@ -172,6 +190,8 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
         aiProfile = null;
         aiEngine = null;
         acpAgent = null;
+        llmFastModel = null;
+        llmPlanningModel = null;
         return true;
     }
 
@@ -250,6 +270,8 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
         if (aiProfile != null) { set.add("aiProfile=" + LogSafe.forLog(aiProfile)); }
         if (aiEngine != null) { set.add("aiEngine=" + aiEngine); }
         if (acpAgent != null) { set.add("acpAgent=" + LogSafe.forLog(acpAgent)); }
+        if (llmFastModel != null) { set.add("llmFastModel=" + LogSafe.forLog(llmFastModel)); }
+        if (llmPlanningModel != null) { set.add("llmPlanningModel=" + LogSafe.forLog(llmPlanningModel)); }
         return "UpdateLobbyPlayer: " + String.join(", ", set);
     }
 }

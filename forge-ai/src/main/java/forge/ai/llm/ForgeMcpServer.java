@@ -31,10 +31,18 @@ import org.apache.catalina.startup.Tomcat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** A localhost MCP endpoint for this agent's game tools. */
 final class ForgeMcpServer implements AutoCloseable {
+    /** Shared with harness tool filters; these names never include a harness namespace. */
+    static final List<String> TOOL_NAMES = List.of(SubmitChoice.NAME, PayMana.NAME, CancelAction.NAME,
+            Mulligan.NAME, SubmitSideboardPlan.NAME, CardDetails.NAME, RulesIndex.NAME, RuleText.NAME,
+            ObserveStack.NAME, ObserveHand.NAME, ObserveDeck.NAME, ObservePreviousGameLog.NAME,
+            ObserveBattlefield.NAME, ObserveGameState.NAME, GetAvailableActions.NAME, PlayAction.NAME, PassPriority.NAME);
+    static final List<String> READ_ONLY_TOOL_NAMES = TOOL_NAMES.stream()
+            .filter(name -> !ToolRepository.DECISIONS.contains(name)).toList();
     private final Tomcat tomcat = new Tomcat();
     private final McpSyncServer mcp;
     private final Path directory;

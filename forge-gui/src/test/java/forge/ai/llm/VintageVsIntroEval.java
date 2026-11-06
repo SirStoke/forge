@@ -86,7 +86,8 @@ public class VintageVsIntroEval extends PuzzleEvalSupport {
             final Player opponent = game.getPlayers().get(1);
             final var classicController = opponent.getController();
             Assert.assertEquals(classicController.getClass(), PlayerControllerAi.class);
-            llm.dangerouslySetController(new PlayerControllerLlm(game, llm, llm.getLobbyPlayer()) {
+            llm.dangerouslySetController(new PlayerControllerLlm(game, llm, llm.getLobbyPlayer(),
+                    LlmEvalConfiguration.fromSystemProperties().agentFactory(llm)) {
                 private int priorityDecisions;
 
                 @Override protected void onLlmFallback(String title) {
@@ -98,7 +99,7 @@ public class VintageVsIntroEval extends PuzzleEvalSupport {
                 }
 
                 @Override public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn) {
-                    Assert.assertTrue(usesLlm(), "Real Codex ACP startup failed; check the logs and prerequisites");
+                    Assert.assertTrue(usesLlm(), "Real ACP agent startup failed; check the logs and prerequisites");
                     return super.mulliganKeepHand(firstPlayer, cardsToReturn);
                 }
 

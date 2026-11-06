@@ -44,6 +44,10 @@ public class PlayerControllerLlm extends LlmDecisionController {
         this(game, player, lobbyPlayer, () -> AcpAgent.start(Path.of("."), player, agentId));
     }
 
+    public PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, String agentId, AcpModels models) {
+        this(game, player, lobbyPlayer, () -> AcpAgent.start(Path.of("."), player, agentId, models));
+    }
+
     PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, Supplier<AcpAgent> agentFactory) {
         super(game, player, lobbyPlayer);
         this.agentFactory = agentFactory;
