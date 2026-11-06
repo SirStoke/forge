@@ -13,6 +13,8 @@ import forge.ai.llm.tools.ObserveGameState;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.PassPriority;
 import forge.ai.llm.tools.SubmitChoice;
+import forge.ai.llm.tools.SubmitSideboardPlan;
+import forge.ai.llm.tools.ObservePreviousGameLog;
 import forge.game.player.Player;
 import forge.util.BuildInfo;
 import forge.util.FileUtil;
@@ -37,6 +39,7 @@ final class ForgeMcpServer implements AutoCloseable {
     private final CallbackOnce<Boolean, String> mulliganDecision = new CallbackOnce<>();
     private final CallbackOnce<PriorityDecision, String> priorityDecision = new CallbackOnce<>();
     private final CallbackOnce<ChoiceDecision, String> choiceDecision = new CallbackOnce<>();
+    private final CallbackOnce<SubmitSideboardPlan, String> sideboardDecision = new CallbackOnce<>();
     private final GameObserver game;
     private final AtomicReference<PriorityActionsSnapshot> priorityActions = new AtomicReference<>();
 
@@ -56,10 +59,14 @@ final class ForgeMcpServer implements AutoCloseable {
                 request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Cancel()));
         tools.register(Mulligan::schema, Mulligan::compile,
                 mulligan -> mulliganDecision.call(mulligan.requestId(), mulligan.keep()));
+        tools.register(SubmitSideboardPlan::schema, SubmitSideboardPlan::compile,
+                plan -> sideboardDecision.call(plan.requestId(), plan));
         tools.register(CardDetails::schema, CardDetails::compile, CardCatalog::lookup);
         tools.register(ObserveStack::schema, ObserveStack::compile, request -> game.read().stack());
         tools.register(ObserveHand::schema, ObserveHand::compile, request -> game.read().hand());
         tools.register(ObserveDeck::schema, ObserveDeck::compile, request -> game.read().deck());
+        tools.register(ObservePreviousGameLog::schema, ObservePreviousGameLog::compile,
+                request -> game.read().previousGameLog().page(request.offset(), request.limit()));
         tools.register(ObserveBattlefield::schema, ObserveBattlefield::compile, request -> game.read().battlefield());
         tools.register(ObserveGameState::schema, ObserveGameState::compile, request -> game.read().state());
         tools.register(GetAvailableActions::schema, GetAvailableActions::compile,
@@ -112,6 +119,10 @@ final class ForgeMcpServer implements AutoCloseable {
         return mulliganDecision;
     }
 
+    CallbackOnce<SubmitSideboardPlan, String> sideboardDecision() {
+        return sideboardDecision;
+    }
+
     CallbackOnce<PriorityDecision, String> priorityDecision() {
         return priorityDecision;
     }
@@ -133,7 +144,7 @@ final class ForgeMcpServer implements AutoCloseable {
     }
 
     void refreshGameState() {
-        game.refresh();
+        game.refreshDeck();
     }
 
     CallbackOnce<ChoiceDecision, String> choiceDecision() {
