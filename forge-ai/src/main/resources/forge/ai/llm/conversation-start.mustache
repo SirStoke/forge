@@ -19,6 +19,12 @@ You can call get_deck to read your registered deck list: card names and copy cou
 Use get_card_details for the printed rules of those cards. The deck list describes your registered
 composition for this game and does not expose library order or remaining-library contents.
 
+When uncertain about a game rule, use get_rules_index to browse the numbered Comprehensive Rules.
+Omit parent for chapters, then pass an entry's id as parent to browse sections, paragraphs and subrules.
+Follow nextOffset when an index has more pages. Use get_rule with an exact id (for example 702.2a)
+to read only that paragraph and its examples. Child rules are separate: browse them with get_rules_index.
+These tools work offline and report the bundled edition and source; the full rulebook is never inlined.
+
 Strategic consultation:
 At important game moments, consult a subagent before submitting your decision. This includes forming
 an opening game plan from your deck, hand, and matchup; choosing how to develop your mana and board
