@@ -2,7 +2,6 @@ package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpClient;
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
-import com.agentclientprotocol.sdk.client.transport.AgentParameters;
 import com.agentclientprotocol.sdk.client.transport.StdioAcpClientTransport;
 import com.agentclientprotocol.sdk.spec.AcpSchema.AgentMessageChunk;
 import com.agentclientprotocol.sdk.spec.AcpSchema.AgentThoughtChunk;
@@ -10,6 +9,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.ContentBlock;
 import com.agentclientprotocol.sdk.spec.AcpSchema.Implementation;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionNotification;
@@ -30,12 +30,11 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** A Codex session with an MCP endpoint for game decisions. */
-final class CodexAcpAgent implements AutoCloseable {
+/** An ACP session with an MCP endpoint for game decisions. */
+final class AcpAgent implements AutoCloseable {
     // Defaults; each session captures its own options when it starts.
     static final String MODEL = "gpt-6.1-terra";
     static final String REASONING_EFFORT = "low";
-    private static final String ADAPTER = "@agentclientprotocol/codex-acp@2.4.0";
 
     record Options(String model, String reasoningEffort) {
         Options {
@@ -65,7 +64,7 @@ final class CodexAcpAgent implements AutoCloseable {
     private final Thread shutdownHook;
     private final Set<CompletableFuture<?>> pendingTurns = ConcurrentHashMap.newKeySet();
 
-    private CodexAcpAgent(AcpSyncClient client, String sessionId, ForgeMcpServer mcpServer,
+    private AcpAgent(AcpSyncClient client, String sessionId, ForgeMcpServer mcpServer,
                           ConversationLog conversation, Options options, LlmMatchProfile.Session profile) {
         this.client = client;
         this.sessionId = sessionId;
@@ -73,37 +72,43 @@ final class CodexAcpAgent implements AutoCloseable {
         this.conversation = conversation;
         this.options = options;
         this.profile = profile;
-        shutdownHook = new Thread(this::close, "forge-codex-acp-shutdown");
+        shutdownHook = new Thread(this::close, "forge-acp-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
 
-    static CodexAcpAgent start(Path workingDirectory, Player player) {
+    static AcpAgent start(Path workingDirectory, Player player) {
         return start(workingDirectory, player, Options.fromSystemProperties());
     }
 
-    static CodexAcpAgent start(Path workingDirectory, Player player, Options options) {
+    static AcpAgent start(Path workingDirectory, Player player, Options options) {
+        return start(workingDirectory, player, options, AcpAgentRegistry.get(AcpAgentRegistry.CODEX));
+    }
+
+    static AcpAgent start(Path workingDirectory, Player player, String agentId) {
+        return start(workingDirectory, player, AcpAgentRegistry.CODEX.equals(agentId)
+                ? Options.fromSystemProperties() : new Options("agent default", "agent default"),
+                AcpAgentRegistry.get(agentId));
+    }
+
+    private static AcpAgent start(Path workingDirectory, Player player, Options options, AcpAgentRegistry.Entry entry) {
         Objects.requireNonNull(options, "options");
+        if (!entry.available()) throw new IllegalStateException(entry.name() + ": " + entry.unavailableReason());
         final ConversationLog conversation = new ConversationLog();
         final var profile = LlmMatchProfile.session(player);
         profile.configure(options);
         conversation.profile = profile;
-        try (var startup = profile.scope("startup", "Start Codex session")) {
+        try (var startup = profile.scope("startup", "Start " + entry.name() + " session")) {
             try {
-                final AgentParameters parameters = AgentParameters.builder("pnpm")
-                        .args("dlx", ADAPTER)
-                        .addEnvVar("NO_BROWSER", "1")
-                        // Run game sessions without the adapter's default sandbox and auto-review.
-                        .addEnvVar("INITIAL_AGENT_MODE", "agent-full-access")
-                        .build();
-                final StdioAcpClientTransport transport = new StdioAcpClientTransport(parameters);
+                final StdioAcpClientTransport transport = new StdioAcpClientTransport(AcpAgentSettings.launchParameters(entry));
                 final AcpSyncClient client = AcpClient.sync(transport)
                         .clientInfo(new Implementation("mtg-forge", BuildInfo.getVersionString()))
                         .sessionUpdateHandler(conversation::onUpdate)
+                        .requestPermissionHandler(AcpAgentSettings::approvePermission)
                         // First launch may also need to download the pinned adapter.
                         .requestTimeout(Duration.ofMinutes(2))
                         .promptTimeout(Duration.ofMinutes(2))
                         .build();
-                return initialize(client, workingDirectory, conversation, player, options, profile);
+                return initialize(client, workingDirectory, conversation, player, options, profile, entry.id());
             } catch (RuntimeException e) {
                 startup.data("outcome", "error");
                 throw e;
@@ -111,19 +116,29 @@ final class CodexAcpAgent implements AutoCloseable {
         }
     }
 
-    static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory) {
+    static AcpAgent initialize(AcpSyncClient client, Path workingDirectory) {
         return initialize(client, workingDirectory, null);
     }
 
-    static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory, Player player) {
+    static AcpAgent initialize(AcpSyncClient client, Path workingDirectory, Player player) {
         return initialize(client, workingDirectory, player, Options.defaults());
     }
 
-    static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory, Player player, Options options) {
+    static AcpAgent initialize(AcpSyncClient client, Path workingDirectory, Player player, Options options) {
         return initialize(client, workingDirectory, new ConversationLog(), player, options);
     }
 
-    private static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory,
+    static AcpAgent initializeForAgent(AcpSyncClient client, Path workingDirectory, Player player, String agentId) {
+        final var profile = LlmMatchProfile.session(player);
+        final var options = AcpAgentRegistry.CODEX.equals(agentId) ? Options.fromSystemProperties()
+                : new Options("agent default", "agent default");
+        profile.configure(options);
+        final var conversation = new ConversationLog();
+        conversation.profile = profile;
+        return initialize(client, workingDirectory, conversation, player, options, profile, agentId);
+    }
+
+    private static AcpAgent initialize(AcpSyncClient client, Path workingDirectory,
                                             ConversationLog conversation, Player player, Options options) {
         final var profile = LlmMatchProfile.session(player);
         profile.configure(options);
@@ -138,41 +153,59 @@ final class CodexAcpAgent implements AutoCloseable {
         }
     }
 
-    private static CodexAcpAgent initialize(AcpSyncClient client, Path workingDirectory,
+    private static AcpAgent initialize(AcpSyncClient client, Path workingDirectory,
                                             ConversationLog conversation, Player player, Options options,
                                             LlmMatchProfile.Session profile) {
+        return initialize(client, workingDirectory, conversation, player, options, profile, AcpAgentRegistry.CODEX);
+    }
+
+    private static AcpAgent initialize(AcpSyncClient client, Path workingDirectory,
+                                            ConversationLog conversation, Player player, Options options,
+                                            LlmMatchProfile.Session profile, String agentId) {
         ForgeMcpServer mcpServer = null;
-        CodexAcpAgent agent = null;
+        AcpAgent agent = null;
         try {
             Objects.requireNonNull(options, "options");
             try (var setup = profile.scope("startup_step", "Start local MCP server")) {
                 mcpServer = ForgeMcpServer.start(player, profile);
             }
             try (var setup = profile.scope("startup_step", "Initialize ACP adapter")) {
-                client.initialize();
+                final var initialized = client.initialize();
+                if (initialized == null || initialized.agentCapabilities() == null
+                        || initialized.agentCapabilities().mcpCapabilities() == null
+                        || !Boolean.TRUE.equals(initialized.agentCapabilities().mcpCapabilities().http())) {
+                    throw new IllegalStateException("ACP agent does not support Forge's HTTP MCP game tools: " + agentId);
+                }
             }
-            final String sessionId;
+            final NewSessionResponse session;
             try (var setup = profile.scope("startup_step", "Create ACP session")) {
-                sessionId = client.newSession(new NewSessionRequest(
+                session = client.newSession(new NewSessionRequest(
                         workingDirectory.toAbsolutePath().normalize().toString(),
-                        List.of(new McpServerHttp("mtg-forge", mcpServer.getUrl(), List.of())))).sessionId();
+                        List.of(new McpServerHttp("mtg-forge", mcpServer.getUrl(), List.of())), List.of(),
+                        AcpAgentSettings.sessionMetadata(agentId)));
             }
+            final String sessionId = session.sessionId();
             profile.sessionId(sessionId);
-            final boolean modelSelected = client.setSessionConfigOption(
-                    SetSessionConfigOptionRequest.select(sessionId, "model", options.model()))
-                    .configOptions().stream().anyMatch(option -> option instanceof SessionConfigSelect select
-                            && "model".equals(select.id()) && options.model().equals(select.currentValue()));
-            if (!modelSelected) {
-                throw new IllegalStateException("Codex did not select the requested model: " + options.model());
+            try (var setup = profile.scope("startup_step", "Configure unattended agent permissions")) {
+                AcpAgentSettings.configureSession(client, session, agentId);
             }
-            final boolean reasoningSelected = client.setSessionConfigOption(
-                    SetSessionConfigOptionRequest.select(sessionId, "reasoning_effort", options.reasoningEffort()))
-                    .configOptions().stream().anyMatch(option -> option instanceof SessionConfigSelect select
-                            && "reasoning_effort".equals(select.id()) && options.reasoningEffort().equals(select.currentValue()));
-            if (!reasoningSelected) {
-                throw new IllegalStateException("Codex did not select the requested reasoning effort: " + options.reasoningEffort());
+            if (AcpAgentRegistry.CODEX.equals(agentId)) {
+                final boolean modelSelected = client.setSessionConfigOption(
+                        SetSessionConfigOptionRequest.select(sessionId, "model", options.model()))
+                        .configOptions().stream().anyMatch(option -> option instanceof SessionConfigSelect select
+                                && "model".equals(select.id()) && options.model().equals(select.currentValue()));
+                if (!modelSelected) {
+                    throw new IllegalStateException("Codex did not select the requested model: " + options.model());
+                }
+                final boolean reasoningSelected = client.setSessionConfigOption(
+                        SetSessionConfigOptionRequest.select(sessionId, "reasoning_effort", options.reasoningEffort()))
+                        .configOptions().stream().anyMatch(option -> option instanceof SessionConfigSelect select
+                                && "reasoning_effort".equals(select.id()) && options.reasoningEffort().equals(select.currentValue()));
+                if (!reasoningSelected) {
+                    throw new IllegalStateException("Codex did not select the requested reasoning effort: " + options.reasoningEffort());
+                }
             }
-            agent = new CodexAcpAgent(client, sessionId, mcpServer, conversation, options, profile);
+            agent = new AcpAgent(client, sessionId, mcpServer, conversation, options, profile);
             agent.prompt(PromptTemplates.load("conversation-start.mustache").execute(Map.of()), "", "startup", "Session instructions");
             return agent;
         } catch (RuntimeException e) {

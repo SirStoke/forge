@@ -294,6 +294,7 @@ public class VLobby implements ILobbyView {
             addConstructedStartControls();
             // Start button event handling
             btnStart.addActionListener(arg0 -> {
+                if (!validateAcpAgents()) return;
                 if (refreshGeneratedDecks) {
                     refreshGeneratedDecks = false;
                     update(true);
@@ -309,6 +310,7 @@ public class VLobby implements ILobbyView {
             btnStartEvent.addActionListener(e -> controller.startEvent());
             btnStartMatch.setFont(FSkin.getRelativeFont(18));
             btnStartMatch.addActionListener(arg0 -> {
+                if (!validateAcpAgents()) return;
                 Runnable startGame = lobby.startGame();
                 if (startGame != null) {
                     startGame.run();
@@ -418,6 +420,9 @@ public class VLobby implements ILobbyView {
             if (i < activePlayersNum) {
                 // visible panels
                 final LobbySlot slot = lobby.getSlot(i);
+                if (slot.getAcpAgent() == null && lobby.mayEdit(i)) {
+                    slot.setAcpAgent(PlayerPanel.savedAcpAgent(i));
+                }
                 final PlayerPanel panel;
                 final boolean isNewPanel;
                 if (hasPanel) {
@@ -448,6 +453,7 @@ public class VLobby implements ILobbyView {
                 panel.setIsArchenemy(slot.isArchenemy());
                 panel.setUseAiSimulation(slot.getAiOptions());
                 panel.setAiEngine(slot.getAiEngine());
+                panel.setAcpAgent(slot.getAcpAgent());
                 panel.setMayEdit(lobby.mayEdit(i));
                 panel.setMayControl(lobby.mayControl(i));
                 panel.setMayRemove(lobby.mayRemove(i));
@@ -614,7 +620,19 @@ public class VLobby implements ILobbyView {
                 panel.getTeam(), panel.isArchenemy(),
                 panel.isDevMode(),
                 panel.getAiOptions(),
-                panel.getAiProfile(), panel.getAiEngine());
+                panel.getAiProfile(), panel.getAiEngine(), panel.getAcpAgent());
+    }
+
+    private boolean validateAcpAgents() {
+        for (int i = 0; i < activePlayersNum; i++) {
+            final PlayerPanel panel = getPlayerPanel(i);
+            final String reason = panel.acpUnavailableReason();
+            if (!reason.isEmpty()) {
+                SOptionPane.showErrorDialog(panel.getPlayerName() + ": " + reason);
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Builds the actual deck panel layouts for each player.

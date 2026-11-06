@@ -1,6 +1,9 @@
 package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.spec.AcpSchema.InitializeResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.AgentCapabilities;
+import com.agentclientprotocol.sdk.spec.AcpSchema.McpCapabilities;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
@@ -78,15 +81,17 @@ public class LlmMatchProfileShould {
         final Game game = game();
         final var profile = LlmMatchProfile.forGame(game);
         final AcpSyncClient client = mock(AcpSyncClient.class);
+        when(client.initialize()).thenReturn(InitializeResponse.ok(new AgentCapabilities(false,
+                new McpCapabilities(true, false), null)));
         when(client.newSession(any())).thenReturn(new NewSessionResponse("agent-seat"));
-        final var model = SessionConfigSelect.builder().id("model").name("Model").currentValue(CodexAcpAgent.MODEL)
-                .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.MODEL, CodexAcpAgent.MODEL))).build();
+        final var model = SessionConfigSelect.builder().id("model").name("Model").currentValue(AcpAgent.MODEL)
+                .options(List.of(new SessionConfigSelectOption(AcpAgent.MODEL, AcpAgent.MODEL))).build();
         final var reasoning = SessionConfigSelect.builder().id("reasoning_effort").name("Reasoning effort")
-                .currentValue(CodexAcpAgent.REASONING_EFFORT)
-                .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.REASONING_EFFORT,
-                        CodexAcpAgent.REASONING_EFFORT))).build();
+                .currentValue(AcpAgent.REASONING_EFFORT)
+                .options(List.of(new SessionConfigSelectOption(AcpAgent.REASONING_EFFORT,
+                        AcpAgent.REASONING_EFFORT))).build();
         when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(model, reasoning)));
-        try (var agent = CodexAcpAgent.initialize(client, Path.of("."), game.getPlayers().get(0))) {
+        try (var agent = AcpAgent.initialize(client, Path.of("."), game.getPlayers().get(0))) {
             doThrow(new IllegalStateException("Prompt failed")).when(client).prompt(any());
             Assert.expectThrows(IllegalStateException.class,
                     () -> agent.prompt("Private prompt", "failed-request", "choice", "Choose a card"));
@@ -111,7 +116,7 @@ public class LlmMatchProfileShould {
         final Game game = game();
         final var profile = LlmMatchProfile.forGame(game);
         final var session = LlmMatchProfile.session(game.getPlayers().get(0));
-        session.configure(CodexAcpAgent.Options.defaults());
+        session.configure(AcpAgent.Options.defaults());
         session.sessionId("first-seat");
         final var pending = new CallbackOnce<Boolean, String>();
         final String requestId = pending.register(keep -> "Keep");
@@ -136,7 +141,7 @@ public class LlmMatchProfileShould {
             }
             session.endAction("played");
             final var second = LlmMatchProfile.session(game.getPlayers().get(1));
-            second.configure(new CodexAcpAgent.Options("other-model", "high"));
+            second.configure(new AcpAgent.Options("other-model", "high"));
             second.sessionId("second-seat");
             try (var request = second.beginRequest("second-request", "choice", "Choose", "")) {
                 request.failed();

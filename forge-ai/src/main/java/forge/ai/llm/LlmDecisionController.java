@@ -65,7 +65,7 @@ abstract class LlmDecisionController extends PlayerControllerAi {
         super(game, player, lobbyPlayer);
     }
 
-    protected abstract CodexAcpAgent decisionAgent();
+    protected abstract AcpAgent decisionAgent();
 
     /** Allows live evals to reject a missing model decision instead of accepting local AI behavior. */
     protected void onLlmFallback(String title) { }

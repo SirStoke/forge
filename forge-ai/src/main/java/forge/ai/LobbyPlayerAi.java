@@ -4,6 +4,7 @@ import java.util.Set;
 
 import forge.LobbyPlayer;
 import forge.ai.llm.PlayerControllerLlm;
+import forge.ai.llm.AcpAgentRegistry;
 import forge.game.Game;
 import forge.game.player.IGameEntitiesFactory;
 import forge.game.player.Player;
@@ -16,6 +17,13 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     private boolean rotateProfileEachGame;
     private AIOption option;
     private final AiEngine engine;
+    private String acpAgent = AcpAgentRegistry.CODEX;
+
+    public void setAcpAgent(String id) {
+        acpAgent = id == null || id.isBlank() ? AcpAgentRegistry.CODEX : id;
+    }
+
+    public String getAcpAgent() { return acpAgent; }
 
     public LobbyPlayerAi(String name, Set<AIOption> options) {
         this(name, options, AiEngine.FORGE);
@@ -43,7 +51,7 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
 
     private PlayerControllerAi createControllerFor(Player ai) {
         if (engine == AiEngine.LLM) {
-            return new PlayerControllerLlm(ai.getGame(), ai, this);
+            return new PlayerControllerLlm(ai.getGame(), ai, this, acpAgent);
         }
         PlayerControllerAi result = new PlayerControllerAi(ai.getGame(), ai, this);
         result.getAi().setUseSimulation(option);

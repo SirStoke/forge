@@ -2,6 +2,7 @@ package forge.screens.home;
 
 import forge.ai.AiProfileUtil;
 import forge.ai.AiEngine;
+import forge.ai.llm.AcpAgentRegistry;
 import forge.deckchooser.FDeckChooser;
 
 import java.awt.*;
@@ -12,6 +13,8 @@ import java.awt.event.FocusEvent;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -34,6 +37,7 @@ import forge.gui.framework.FScreen;
 import forge.gui.util.SOptionPane;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgePreferences;
+import forge.localinstance.properties.ForgeConstants;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.localinstance.skin.FSkinProp;
 import forge.model.FModel;
@@ -84,6 +88,13 @@ public class PlayerPanel extends FPanel {
 
     private final FLabel aiEngineLabel = new FLabel.Builder().text(localizer.getMessage("lblAiEngine") + ":").build();
     private final FComboBoxWrapper<AiEngine> aiEngineComboBox = new FComboBoxWrapper<>();
+    private final FLabel acpAgentLabel = new FLabel.Builder().text(localizer.getMessage("lblAcpAgent") + ":").build();
+    private final FComboBoxWrapper<AcpAgentRegistry.Entry> acpAgentComboBox = new FComboBoxWrapper<>();
+    private final FLabel acpAgentStatus = new FLabel.Builder().build();
+    private String selectedAcpAgent;
+    private boolean acpDiscoveryStarted;
+    private boolean acpDiscoveryFinished;
+    private String acpCatalogNotice = "";
 
     // AI picker
     private String aiProfile;
@@ -181,7 +192,41 @@ public class PlayerPanel extends FPanel {
             lobby.firePlayerChangeListener(index);
         });
 
-        int cellY = 2;
+        selectedAcpAgent = slot != null && slot.getAcpAgent() != null ? slot.getAcpAgent() : savedAcpAgent(index);
+        acpAgentComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int itemIndex,
+                                                           boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, itemIndex, isSelected, cellHasFocus);
+                if (value instanceof AcpAgentRegistry.Entry entry) {
+                    setText(entry.name() + (entry.available() ? "" : " (" + localizer.getMessage("lblAcpUnavailable") + ")"));
+                    setToolTipText(entry.available() ? entry.name() : entry.unavailableReason());
+                    setEnabled(entry.available());
+                }
+                return this;
+            }
+        });
+        populateAcpAgents(AcpAgentRegistry.entries());
+        acpAgentComboBox.addActionListener(e -> {
+            final var selected = acpAgentComboBox.getSelectedItem();
+            if (selected == null || !selected.available()) {
+                setAcpAgent(selectedAcpAgent);
+                return;
+            }
+            selectedAcpAgent = selected.id();
+            final List<String> saved = new ArrayList<>(Arrays.asList(prefs.getPref(FPref.UI_LLM_ACP_AGENTS).split(",", -1)));
+            while (saved.size() <= index) saved.add("");
+            saved.set(index, selectedAcpAgent);
+            prefs.setPref(FPref.UI_LLM_ACP_AGENTS, String.join(",", saved));
+            prefs.save();
+            updateAcpControls();
+            lobby.firePlayerChangeListener(index);
+        });
+        this.add(acpAgentLabel, "cell 0 2, sx 2, ax right, h 30px, hidemode 3");
+        acpAgentComboBox.addTo(this, "cell 2 2, spanx 4, growx, h 30px, hidemode 3, wrap");
+        this.add(acpAgentStatus, "cell 2 3, spanx 4, growx, w 0:pref, hidemode 3, wrap");
+
+        int cellY = 4;
         if (prefs.getPrefBoolean(FPref.UI_ENABLE_AI_PICKER)) {
             this.add(aiPickerLabel, "cell 0 " + cellY + ", sx 2, ax right, w 40px, h 30px, hidemode 3");
             populateAiPickerComboBox();
@@ -280,6 +325,7 @@ public class PlayerPanel extends FPanel {
         aiEngineLabel.setVisible(isAiSlot);
         aiEngineComboBox.setVisible(isAiSlot);
         aiEngineComboBox.setEnabled(mayEdit && isAiSlot);
+        updateAcpControls();
 
         boolean enableAiPicker = mayEdit && isAiSlot && getAiEngine() == AiEngine.FORGE
                 && prefs.getPrefBoolean(FPref.UI_ENABLE_AI_PICKER);
@@ -460,6 +506,77 @@ public class PlayerPanel extends FPanel {
         } finally {
             aiEngineComboBox.unsuppressActionListeners();
         }
+    }
+
+    static String savedAcpAgent(int index) {
+        final String[] saved = prefs.getPref(FPref.UI_LLM_ACP_AGENTS).split(",", -1);
+        final String id = index < saved.length ? saved[index] : "";
+        return AcpAgentRegistry.entries().stream().anyMatch(entry -> entry.id().equals(id)) ? id : AcpAgentRegistry.CODEX;
+    }
+
+    public String getAcpAgent() { return selectedAcpAgent; }
+
+    public void setAcpAgent(String id) {
+        selectedAcpAgent = id == null || id.isBlank() ? savedAcpAgent(index) : id;
+        acpAgentComboBox.suppressActionListeners();
+        try {
+            acpAgentComboBox.setSelectedIndex(-1);
+            for (int i = 0; i < acpAgentComboBox.getItemCount(); i++) {
+                if (acpAgentComboBox.getItemAt(i).id().equals(selectedAcpAgent)) {
+                    acpAgentComboBox.setSelectedIndex(i);
+                    break;
+                }
+            }
+        } finally {
+            acpAgentComboBox.unsuppressActionListeners();
+        }
+    }
+
+    private void populateAcpAgents(List<AcpAgentRegistry.Entry> entries) {
+        acpAgentComboBox.suppressActionListeners();
+        try {
+            acpAgentComboBox.removeAllItems();
+            entries.forEach(acpAgentComboBox::addItem);
+        } finally {
+            acpAgentComboBox.unsuppressActionListeners();
+        }
+        setAcpAgent(selectedAcpAgent);
+    }
+
+    String acpUnavailableReason() {
+        if (!isAi() || getAiEngine() != AiEngine.LLM) return "";
+        if (!acpDiscoveryFinished) return localizer.getMessage("lblCheckingAcpAgents");
+        final var entry = acpAgentComboBox.getSelectedItem();
+        return entry == null ? localizer.getMessage("lblChooseAcpAgent") : entry.unavailableReason();
+    }
+
+    private void updateAcpControls() {
+        final boolean visible = type == LobbySlotType.AI && getAiEngine() == AiEngine.LLM;
+        acpAgentLabel.setVisible(visible);
+        acpAgentComboBox.setVisible(visible);
+        acpAgentStatus.setVisible(visible);
+        acpAgentComboBox.setEnabled(visible && mayEdit && acpDiscoveryFinished);
+        if (!visible) return;
+        if (!acpDiscoveryStarted) {
+            acpDiscoveryStarted = true;
+            AcpAgentRegistry.discover(java.nio.file.Path.of(ForgeConstants.CACHE_DIR, "acp-registry.json"))
+                    .whenComplete((catalog, error) -> SwingUtilities.invokeLater(() -> {
+                        acpDiscoveryFinished = true;
+                        if (error == null) {
+                            acpCatalogNotice = catalog.notice();
+                            populateAcpAgents(catalog.entries());
+                        } else {
+                            acpCatalogNotice = localizer.getMessage("lblAcpRegistryUnavailable");
+                        }
+                        updateAcpControls();
+                        revalidate();
+                        repaint();
+                    }));
+        }
+        final String unavailable = acpUnavailableReason();
+        acpAgentStatus.setText(!unavailable.isEmpty() ? unavailable : !acpCatalogNotice.isEmpty()
+                ? acpCatalogNotice : localizer.getMessage("lblAcpToolsFound"));
+        acpAgentStatus.setToolTipText(acpAgentStatus.getText());
     }
 
     public Set<AIOption> getAiOptions() {

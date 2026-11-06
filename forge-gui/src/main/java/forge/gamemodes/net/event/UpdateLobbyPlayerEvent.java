@@ -34,6 +34,18 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
     private String DeckName = null;
     private String aiProfile = null;
     private AiEngine aiEngine = null;
+    private String acpAgent = null;
+
+    public String getAcpAgent() { return acpAgent; }
+
+    public static UpdateLobbyPlayerEvent create(final LobbySlotType type, final String name, final int avatarIndex,
+            final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isDevMode,
+            final Set<AIOption> aiOptions, final String aiProfile, final AiEngine aiEngine, final String acpAgent) {
+        final UpdateLobbyPlayerEvent event = create(type, name, avatarIndex, sleeveIndex, team, isArchenemy,
+                isDevMode, aiOptions, aiProfile, aiEngine);
+        event.acpAgent = acpAgent;
+        return event;
+    }
 
     public static UpdateLobbyPlayerEvent create(final LobbySlotType type, final String name, final int avatarIndex, final int sleeveIndex, final int team, final boolean isArchenemy, final boolean isDevMode, final Set<AIOption> aiOptions, final String aiProfile) {
         return new UpdateLobbyPlayerEvent(type, name, avatarIndex, sleeveIndex, team, isArchenemy, isDevMode, aiOptions, aiProfile);
@@ -152,13 +164,14 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
      * field added later.
      */
     public boolean clearServerOwnedFields() {
-        if (type == null && aiOptions == null && aiProfile == null && aiEngine == null) {
+        if (type == null && aiOptions == null && aiProfile == null && aiEngine == null && acpAgent == null) {
             return false;
         }
         type = null;
         aiOptions = null;
         aiProfile = null;
         aiEngine = null;
+        acpAgent = null;
         return true;
     }
 
@@ -236,6 +249,7 @@ public final class UpdateLobbyPlayerEvent implements NetEvent {
         if (DeckName != null) { set.add("deckName=" + LogSafe.forLog(DeckName)); }
         if (aiProfile != null) { set.add("aiProfile=" + LogSafe.forLog(aiProfile)); }
         if (aiEngine != null) { set.add("aiEngine=" + aiEngine); }
+        if (acpAgent != null) { set.add("acpAgent=" + LogSafe.forLog(acpAgent)); }
         return "UpdateLobbyPlayer: " + String.join(", ", set);
     }
 }

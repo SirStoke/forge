@@ -1,6 +1,15 @@
 package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.spec.AcpSchema.InitializeResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.AgentCapabilities;
+import com.agentclientprotocol.sdk.spec.AcpSchema.McpCapabilities;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionCancelled;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionOption;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionOptionKind;
+import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionSelected;
+import com.agentclientprotocol.sdk.spec.AcpSchema.RequestPermissionRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.ToolCallUpdate;
 import com.agentclientprotocol.sdk.client.AcpAsyncClient;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionResponse;
@@ -11,6 +20,10 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelectOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionConfigOptionResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SessionMode;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SessionModeState;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionModeRequest;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionModeResponse;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
@@ -60,7 +73,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-public class CodexAcpAgentShould {
+public class AcpAgentShould {
     private static final Path WORKING_DIRECTORY = Path.of(".").toAbsolutePath().normalize();
 
     @BeforeClass
@@ -69,7 +82,7 @@ public class CodexAcpAgentShould {
     }
 
     private AcpSyncClient clientSelecting(String model) {
-        return clientSelecting(model, CodexAcpAgent.REASONING_EFFORT);
+        return clientSelecting(model, AcpAgent.REASONING_EFFORT);
     }
 
     private AcpSyncClient clientSelecting(String model, String reasoningEffort) {
@@ -78,6 +91,8 @@ public class CodexAcpAgentShould {
         when(client.async()).thenReturn(async);
         when(async.prompt(any())).thenAnswer(invocation ->
                 Mono.fromCallable(() -> client.prompt(invocation.getArgument(0))));
+        when(client.initialize()).thenReturn(InitializeResponse.ok(new AgentCapabilities(false,
+                    new McpCapabilities(true, false), null)));
         when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session"));
         final SessionConfigSelect option = SessionConfigSelect.builder()
                 .id("model").name("Model").currentValue(model)
@@ -90,9 +105,132 @@ public class CodexAcpAgentShould {
     }
 
     @Test
+    public void useOtherHarnessDefaultsAndStillProvideForgeTools() {
+        final AcpSyncClient client = clientSelecting("unused");
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "opencode")) {
+            verify(client, times(0)).setSessionConfigOption(any());
+            final ArgumentCaptor<NewSessionRequest> request = ArgumentCaptor.forClass(NewSessionRequest.class);
+            verify(client).newSession(request.capture());
+            Assert.assertEquals(request.getValue().mcpServers().size(), 1);
+            Assert.assertEquals(((McpServerHttp) request.getValue().mcpServers().get(0)).name(), "mtg-forge");
+            verify(client).prompt(any());
+        }
+        verify(client).close();
+    }
+
+    @Test
+    public void rejectAgentsWithoutHttpMcpBeforeCreatingASession() {
+        final AcpSyncClient client = clientSelecting("unused");
+        when(client.initialize()).thenReturn(InitializeResponse.ok());
+        final var error = Assert.expectThrows(IllegalStateException.class,
+                () -> AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "opencode"));
+        Assert.assertTrue(error.getMessage().contains("HTTP MCP"));
+        verify(client, times(0)).newSession(any());
+        verify(client, times(0)).prompt(any());
+        verify(client).close();
+    }
+
+    @Test
+    public void approveUnattendedToolCallsUsingAnOfferedPermissionOption() {
+        final var options = List.of(new PermissionOption("reject", "Reject", PermissionOptionKind.REJECT_ONCE),
+                new PermissionOption("always", "Allow always", PermissionOptionKind.ALLOW_ALWAYS),
+                new PermissionOption("once", "Allow once", PermissionOptionKind.ALLOW_ONCE));
+        final var game = new ToolCallUpdate("call", "mcp__mtg-forge__submit_choice", null, null);
+        Assert.assertEquals(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", game, options)).outcome(),
+                new PermissionSelected("once"));
+        final var shell = new ToolCallUpdate("call", "Run shell command", null, null);
+        Assert.assertEquals(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", shell, options)).outcome(),
+                new PermissionSelected("once"));
+        Assert.assertEquals(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", shell,
+                List.of(options.get(1)))).outcome(), new PermissionSelected("always"));
+        Assert.assertTrue(AcpAgentSettings.approvePermission(new RequestPermissionRequest("session", shell,
+                List.of(options.get(0)))).outcome() instanceof PermissionCancelled);
+    }
+
+    @Test
+    public void configureEachHarnessWithoutDroppingTheRegistryLaunchRecipe() {
+        for (String id : List.of("codex-acp", "claude-acp", "opencode", "github-copilot")) {
+            final var entry = new AcpAgentRegistry.Entry(id, id, "1.0", List.of("runner", "registry-package", "--registry-flag"),
+                    Map.of("REGISTRY_ENV", "preserved"), "");
+            final var parameters = AcpAgentSettings.launchParameters(entry);
+            Assert.assertEquals(parameters.getCommand(), "runner");
+            Assert.assertEquals(parameters.getArgs(), List.of("registry-package", "--registry-flag"));
+            Assert.assertEquals(parameters.getEnv().get("REGISTRY_ENV"), "preserved");
+            if (id.equals("codex-acp")) {
+                Assert.assertEquals(parameters.getEnv().get("INITIAL_AGENT_MODE"), "agent-full-access");
+            } else {
+                Assert.assertFalse(parameters.getEnv().containsKey("INITIAL_AGENT_MODE"));
+            }
+            if (id.equals("opencode")) Assert.assertEquals(parameters.getEnv().get("OPENCODE_PERMISSION"), "{\"*\":\"allow\"}");
+            if (id.equals("github-copilot")) {
+                Assert.assertEquals(parameters.getEnv().get("COPILOT_ALLOW_ALL"), "true");
+                Assert.assertEquals(parameters.getEnv().get("GITHUB_COPILOT_ACP_USE_CLI"), "1");
+                Assert.assertFalse(parameters.getArgs().contains("--no-sandbox"), "The registry adapter does not forward CLI flags");
+            }
+        }
+    }
+
+    @Test
+    public void disableClaudeSandboxAndSelectBypassBeforePrompting() {
+        final var client = clientSelecting("unused");
+        final var mode = SessionConfigSelect.builder().id("mode").name("Permissions").currentValue("default")
+                .options(List.of(new SessionConfigSelectOption("default", "Default"),
+                        new SessionConfigSelectOption("bypassPermissions", "Bypass"))).build();
+        final var selected = SessionConfigSelect.builder().id("mode").name("Permissions").currentValue("bypassPermissions")
+                .options(List.of(new SessionConfigSelectOption("bypassPermissions", "Bypass"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(mode)));
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(selected)));
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "claude-acp")) {
+            final var order = inOrder(client);
+            order.verify(client).initialize();
+            final var request = ArgumentCaptor.forClass(NewSessionRequest.class);
+            order.verify(client).newSession(request.capture());
+            Assert.assertEquals(request.getValue().meta(), Map.of("claudeCode", Map.of("options", Map.of(
+                    "allowDangerouslySkipPermissions", true, "sandbox", Map.of("enabled", false)))));
+            order.verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "mode", "bypassPermissions"));
+            order.verify(client).prompt(any());
+        }
+    }
+
+    @Test
+    public void supportClaudeLegacyModesAndStopIfBypassIsUnavailable() {
+        final var client = clientSelecting("unused");
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session",
+                new SessionModeState("default", List.of(new SessionMode("bypassPermissions", "Bypass", null)))));
+        when(client.setSessionMode(any())).thenReturn(new SetSessionModeResponse());
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "claude-acp")) {
+            verify(client).setSessionMode(new SetSessionModeRequest("test-session", "bypassPermissions"));
+        }
+        final var blocked = clientSelecting("unused");
+        final var error = Assert.expectThrows(IllegalStateException.class,
+                () -> AcpAgent.initializeForAgent(blocked, WORKING_DIRECTORY, null, "claude-acp"));
+        Assert.assertTrue(error.getMessage().contains("bypassPermissions"));
+        verify(blocked, times(0)).prompt(any());
+        verify(blocked).close();
+    }
+
+    @Test
+    public void enableCopilotAllowAllAndRejectAnUnacknowledgedPermissionChange() {
+        final var client = clientSelecting("unused");
+        final var off = SessionConfigSelect.builder().id("allow_all").name("Allow all").currentValue("off")
+                .options(List.of(new SessionConfigSelectOption("off", "Off"), new SessionConfigSelectOption("on", "On"))).build();
+        final var on = SessionConfigSelect.builder().id("allow_all").name("Allow all").currentValue("on")
+                .options(List.of(new SessionConfigSelectOption("on", "On"))).build();
+        when(client.newSession(any())).thenReturn(new NewSessionResponse("test-session", null, List.of(off)));
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(on)));
+        try (var agent = AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "github-copilot")) {
+            verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("test-session", "allow_all", "on"));
+        }
+        when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(off)));
+        final var error = Assert.expectThrows(IllegalStateException.class,
+                () -> AcpAgent.initializeForAgent(client, WORKING_DIRECTORY, null, "github-copilot"));
+        Assert.assertTrue(error.getMessage().contains("did not select allow_all=on"));
+    }
+
+    @Test
     public void sendTheOpeningPromptAfterInitializingTheSessionModelAndReasoningEffort() {
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
-        final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
+        final AcpAgent agent = AcpAgent.initialize(client, WORKING_DIRECTORY);
         try {
             Assert.assertEquals(agent.getSessionId(), "test-session");
             final InOrder order = inOrder(client);
@@ -105,7 +243,7 @@ public class CodexAcpAgentShould {
             Assert.assertEquals(mcp.name(), "mtg-forge");
             Assert.assertTrue(mcp.url().matches("http://127\\.0\\.0\\.1:[0-9]+/mcp"));
             order.verify(client).setSessionConfigOption(
-                    SetSessionConfigOptionRequest.select("test-session", "model", CodexAcpAgent.MODEL));
+                    SetSessionConfigOptionRequest.select("test-session", "model", AcpAgent.MODEL));
             order.verify(client).setSessionConfigOption(
                     SetSessionConfigOptionRequest.select("test-session", "reasoning_effort", "low"));
             final ArgumentCaptor<PromptRequest> opening = ArgumentCaptor.forClass(PromptRequest.class);
@@ -130,8 +268,8 @@ public class CodexAcpAgentShould {
 
     @Test
     public void releaseAnUnansweredPromptWhenTheSessionCloses() throws Exception {
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
-        try (var agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY)) {
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
             final var requested = new CompletableFuture<Void>();
             when(client.async().prompt(any())).thenAnswer(invocation -> {
                 requested.complete(null);
@@ -152,10 +290,10 @@ public class CodexAcpAgentShould {
         try {
             System.setProperty("forge.llm.model", "eval-model");
             System.setProperty("forge.llm.reasoningEffort", "high");
-            final var options = CodexAcpAgent.Options.fromSystemProperties();
+            final var options = AcpAgent.Options.fromSystemProperties();
             final AcpSyncClient client = clientSelecting("eval-model", "high");
-            try (var agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY, null, options)) {
-                Assert.assertEquals(agent.options(), new CodexAcpAgent.Options("eval-model", "high"));
+            try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY, null, options)) {
+                Assert.assertEquals(agent.options(), new AcpAgent.Options("eval-model", "high"));
                 verify(client).setSessionConfigOption(
                         SetSessionConfigOptionRequest.select("test-session", "model", "eval-model"));
                 verify(client).setSessionConfigOption(
@@ -173,9 +311,9 @@ public class CodexAcpAgentShould {
     @Test
     public void closeTheClientWhenTheRequestedReasoningEffortIsNotSelected() {
         final AcpSyncClient client = clientSelecting("eval-model", "low");
-        final var options = new CodexAcpAgent.Options("eval-model", "high");
+        final var options = new AcpAgent.Options("eval-model", "high");
         final var error = Assert.expectThrows(IllegalStateException.class,
-                () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY, null, options));
+                () -> AcpAgent.initialize(client, WORKING_DIRECTORY, null, options));
         Assert.assertTrue(error.getMessage().contains("high"));
         verify(client).close();
         verify(client, times(0)).prompt(any());
@@ -184,7 +322,7 @@ public class CodexAcpAgentShould {
     @Test
     public void closeTheClientWhenTheRequestedModelIsNotSelected() {
         final AcpSyncClient client = clientSelecting("another-model");
-        Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        Assert.expectThrows(IllegalStateException.class, () -> AcpAgent.initialize(client, WORKING_DIRECTORY));
         verify(client).close();
     }
 
@@ -192,7 +330,7 @@ public class CodexAcpAgentShould {
     public void closeTheClientWhenInitializationFails() {
         final AcpSyncClient client = mock(AcpSyncClient.class);
         doThrow(new IllegalStateException("Agent unavailable")).when(client).initialize();
-        Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        Assert.expectThrows(IllegalStateException.class, () -> AcpAgent.initialize(client, WORKING_DIRECTORY));
         verify(client).initialize();
         verify(client).close();
         verifyNoMoreInteractions(client);
@@ -200,16 +338,16 @@ public class CodexAcpAgentShould {
 
     @Test
     public void closeTheAgentWhenTheOpeningPromptFails() {
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
         doThrow(new IllegalStateException("Opening prompt failed")).when(client).prompt(any());
-        Assert.expectThrows(IllegalStateException.class, () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+        Assert.expectThrows(IllegalStateException.class, () -> AcpAgent.initialize(client, WORKING_DIRECTORY));
         verify(client).close();
     }
 
     @Test
     public void exposeGameObservationsWhileTheOpeningAcpPromptIsRunning() {
         final Game game = newGame();
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
         final AtomicReference<String> url = new AtomicReference<>();
         when(client.newSession(any())).thenAnswer(invocation -> {
             final NewSessionRequest request = invocation.getArgument(0);
@@ -234,7 +372,7 @@ public class CodexAcpAgentShould {
             }
             return null;
         });
-        try (var agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY, game.getPlayers().get(0))) {
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY, game.getPlayers().get(0))) {
             verify(client).prompt(any());
         }
     }
@@ -253,12 +391,12 @@ public class CodexAcpAgentShould {
     @Test
     public void initializeOnceAtGameStartAndCloseAtGameFinish() {
         final Game game = newGame();
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
         final AtomicInteger starts = new AtomicInteger();
         final PlayerControllerLlm controller = new PlayerControllerLlm(game, game.getPlayers().get(0),
                 game.getPlayers().get(0).getLobbyPlayer(), () -> {
                     starts.incrementAndGet();
-                    return CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+                    return AcpAgent.initialize(client, WORKING_DIRECTORY);
                 });
         verifyNoInteractions(client);
         try {
@@ -281,9 +419,9 @@ public class CodexAcpAgentShould {
         final Game game = newGame();
         final var player = game.getPlayers().get(0);
         final var opponent = game.getPlayers().get(1);
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
         final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
-                () -> CodexAcpAgent.initialize(client, WORKING_DIRECTORY));
+                () -> AcpAgent.initialize(client, WORKING_DIRECTORY));
         for (String name : List.of("Island", "Island", "Fire & Ice <test>")) {
             final Card card = new Card(game.nextCardId(), game);
             card.setOwner(player);
@@ -319,8 +457,8 @@ public class CodexAcpAgentShould {
     public void applyMulliganDecisionsSubmittedThroughMcpDuringTheAcpTurn() {
         final Game game = newGame();
         final var player = game.getPlayers().get(0);
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
-        final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
+        final AcpAgent agent = AcpAgent.initialize(client, WORKING_DIRECTORY);
         final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
                 () -> agent);
         startGame(game);
@@ -368,8 +506,8 @@ public class CodexAcpAgentShould {
     public void useTheBuiltInMulliganDecisionWhenPromptingFails() {
         final Game game = newGame();
         final var player = game.getPlayers().get(0);
-        final AcpSyncClient client = clientSelecting(CodexAcpAgent.MODEL);
-        final CodexAcpAgent agent = CodexAcpAgent.initialize(client, WORKING_DIRECTORY);
+        final AcpSyncClient client = clientSelecting(AcpAgent.MODEL);
+        final AcpAgent agent = AcpAgent.initialize(client, WORKING_DIRECTORY);
         doThrow(new IllegalStateException("Agent unavailable")).when(client).prompt(any());
         final PlayerControllerLlm controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(),
                 () -> agent);

@@ -40,10 +40,11 @@ public class LlmEngineShould {
 
         final UpdateLobbyPlayerEvent selection = UpdateLobbyPlayerEvent.create(
                 LobbySlotType.AI, "Opponent", 0, 0, 1, false, false,
-                Collections.emptySet(), "Default", AiEngine.LLM);
+                Collections.emptySet(), "Default", AiEngine.LLM, "claude-acp");
         Assert.assertTrue(slot.apply(selection));
         slot.apply(UpdateLobbyPlayerEvent.nameUpdate("Renamed opponent"));
         Assert.assertEquals(slot.getAiEngine(), AiEngine.LLM);
+        Assert.assertEquals(slot.getAcpAgent(), "claude-acp");
 
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ObjectOutputStream output = new ObjectOutputStream(bytes)) {
@@ -52,6 +53,7 @@ public class LlmEngineShould {
         try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             final LobbySlot restored = (LobbySlot) input.readObject();
             Assert.assertEquals(restored.getAiEngine(), AiEngine.LLM);
+            Assert.assertEquals(restored.getAcpAgent(), "claude-acp");
             Assert.assertEquals(restored.getName(), "Renamed opponent");
         }
 
@@ -61,6 +63,9 @@ public class LlmEngineShould {
         Assert.assertNull(legacyUpdate.getAiEngine());
         slot.apply(legacyUpdate);
         Assert.assertEquals(slot.getAiEngine(), AiEngine.LLM);
+        Assert.assertEquals(slot.getAcpAgent(), "claude-acp");
+        Assert.assertTrue(selection.clearServerOwnedFields());
+        Assert.assertNull(selection.getAcpAgent(), "Remote clients must not configure the host's agent command");
     }
 
     @Test

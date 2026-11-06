@@ -165,7 +165,7 @@ final class LlmMatchProfile {
             this.player = new WeakReference<>(player);
         }
 
-        void configure(CodexAcpAgent.Options options) {
+        void configure(AcpAgent.Options options) {
             model = options.model();
             reasoningEffort = options.reasoningEffort();
         }

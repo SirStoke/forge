@@ -20,22 +20,26 @@ import java.util.function.Supplier;
  * Harness-controlled gameplay with validated choices and local AI fallback.
  */
 public class PlayerControllerLlm extends LlmDecisionController {
-    private final Supplier<CodexAcpAgent> agentFactory;
-    private CodexAcpAgent agent;
+    private final Supplier<AcpAgent> agentFactory;
+    private AcpAgent agent;
     private boolean initializationAttempted;
     private boolean finished;
     private boolean passAfterFailedPlay;
 
     @Override
-    protected CodexAcpAgent decisionAgent() {
+    protected AcpAgent decisionAgent() {
         return agent;
     }
 
     public PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer) {
-        this(game, player, lobbyPlayer, () -> CodexAcpAgent.start(Path.of("."), player));
+        this(game, player, lobbyPlayer, () -> AcpAgent.start(Path.of("."), player));
     }
 
-    PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, Supplier<CodexAcpAgent> agentFactory) {
+    public PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, String agentId) {
+        this(game, player, lobbyPlayer, () -> AcpAgent.start(Path.of("."), player, agentId));
+    }
+
+    PlayerControllerLlm(Game game, Player player, LobbyPlayer lobbyPlayer, Supplier<AcpAgent> agentFactory) {
         super(game, player, lobbyPlayer);
         this.agentFactory = agentFactory;
         game.subscribeToEvents(this);
@@ -51,10 +55,10 @@ public class PlayerControllerLlm extends LlmDecisionController {
         initializationAttempted = true;
         try {
             agent = agentFactory.get();
-            Logger.info("Initialized Codex ACP for {} with {} (reasoning effort: {})", player.getName(),
+            Logger.info("Initialized ACP for {} with {} (reasoning effort: {})", player.getName(),
                     agent.options().model(), agent.options().reasoningEffort());
         } catch (RuntimeException e) {
-            Logger.error(e, "Could not initialize Codex ACP for {}", player.getName());
+            Logger.error(e, "Could not initialize ACP for {}", player.getName());
         }
     }
 

@@ -1,6 +1,9 @@
 package forge.ai.llm;
 
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
+import com.agentclientprotocol.sdk.spec.AcpSchema.InitializeResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.AgentCapabilities;
+import com.agentclientprotocol.sdk.spec.AcpSchema.McpCapabilities;
 import com.agentclientprotocol.sdk.client.AcpAsyncClient;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PromptResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerHttp;
@@ -78,7 +81,7 @@ public class PriorityActionsShould {
         final Player opponent;
         final AcpSyncClient client = mock(AcpSyncClient.class);
         final AcpAsyncClient async = mock(AcpAsyncClient.class);
-        final CodexAcpAgent agent;
+        final AcpAgent agent;
         final PlayerControllerLlm controller;
         final McpSyncClient mcp;
 
@@ -97,20 +100,22 @@ public class PriorityActionsShould {
             game.setAge(GameStage.Play);
             game.getPhaseHandler().devModeSet(PhaseType.MAIN1, player, false, 1);
             final var url = new AtomicReference<String>();
+            when(client.initialize()).thenReturn(InitializeResponse.ok(new AgentCapabilities(false,
+                    new McpCapabilities(true, false), null)));
             when(client.newSession(any())).thenAnswer(invocation -> {
                 final NewSessionRequest request = invocation.getArgument(0);
                 url.set(((McpServerHttp) request.mcpServers().get(0)).url());
                 return new NewSessionResponse("test-session");
             });
             final var model = SessionConfigSelect.builder().id("model").name("Model")
-                    .currentValue(CodexAcpAgent.MODEL)
-                    .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.MODEL, CodexAcpAgent.MODEL))).build();
+                    .currentValue(AcpAgent.MODEL)
+                    .options(List.of(new SessionConfigSelectOption(AcpAgent.MODEL, AcpAgent.MODEL))).build();
             final var reasoning = SessionConfigSelect.builder().id("reasoning_effort").name("Reasoning effort")
-                    .currentValue(CodexAcpAgent.REASONING_EFFORT)
-                    .options(List.of(new SessionConfigSelectOption(CodexAcpAgent.REASONING_EFFORT,
-                            CodexAcpAgent.REASONING_EFFORT))).build();
+                    .currentValue(AcpAgent.REASONING_EFFORT)
+                    .options(List.of(new SessionConfigSelectOption(AcpAgent.REASONING_EFFORT,
+                            AcpAgent.REASONING_EFFORT))).build();
             when(client.setSessionConfigOption(any())).thenReturn(new SetSessionConfigOptionResponse(List.of(model, reasoning)));
-            agent = CodexAcpAgent.initialize(client, Path.of("."), player);
+            agent = AcpAgent.initialize(client, Path.of("."), player);
             controller = new PlayerControllerLlm(game, player, player.getLobbyPlayer(), () -> agent);
             player.dangerouslySetController(controller);
             game.fireEvent(new GameEventGameStarted(GameType.Constructed, player, game.getPlayers()));
