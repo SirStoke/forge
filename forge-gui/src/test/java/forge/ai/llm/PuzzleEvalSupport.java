@@ -44,8 +44,11 @@ abstract class PuzzleEvalSupport {
             sections.forEach(CardType.Helper::parseTypes);
             CardType.Constant.LOADED.set();
         }
-        new StaticData(new CardStorageReader("res/cardsfolder", null, true), null,
-                "res/editions", "target/llm-evals/custom-editions", "res/blockdata", "latest", false, false);
+        // Full games can resolve token-producing cards such as Wurmcoil Engine.
+        new StaticData(new CardStorageReader("res/cardsfolder", null, true),
+                new CardStorageReader("res/tokenscripts", null, false), null, null,
+                "res/editions", "target/llm-evals/custom-editions", "res/blockdata", "", "latest",
+                false, false, false, false);
     }
 
     static final class Scenario implements AutoCloseable {

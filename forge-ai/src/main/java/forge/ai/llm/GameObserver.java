@@ -10,13 +10,14 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Publishes snapshots from game events; MCP readers never access the live game. */
 final class GameObserver implements AutoCloseable {
     private final Player viewer;
-    private final DeckSnapshot deck;
+    private final PreviousGameLogSnapshot previousGameLog;
+    private DeckSnapshot deck;
     private final AtomicReference<Snapshot> current = new AtomicReference<>();
     private volatile boolean closed;
 
     GameObserver(Player viewer) {
         this.viewer = viewer;
-        // Registered composition is fixed for this game's session; capture it on the game thread.
+        previousGameLog = viewer == null ? null : PreviousGameLogSnapshot.capture(viewer);
         deck = viewer == null ? null : DeckSnapshot.capture(viewer);
         if (viewer != null) {
             refresh();
@@ -27,8 +28,15 @@ final class GameObserver implements AutoCloseable {
     void refresh() {
         if (!closed && viewer != null) {
             current.set(new Snapshot(StackSnapshot.capture(viewer), CardsSnapshot.hand(viewer),
-                    CardsSnapshot.battlefield(viewer), deck, GameStateSnapshot.capture(viewer)));
+                    CardsSnapshot.battlefield(viewer), deck, GameStateSnapshot.capture(viewer),
+                    previousGameLog));
         }
+    }
+
+    /** Requests and game start may follow sideboarding; ordinary events reuse the registered composition. */
+    void refreshDeck() {
+        if (!closed && viewer != null) deck = DeckSnapshot.capture(viewer);
+        refresh();
     }
 
     Snapshot read() {
@@ -55,6 +63,6 @@ final class GameObserver implements AutoCloseable {
     }
 
     record Snapshot(StackSnapshot stack, CardsSnapshot hand, CardsSnapshot battlefield, DeckSnapshot deck,
-                    GameStateSnapshot state) {
+                    GameStateSnapshot state, PreviousGameLogSnapshot previousGameLog) {
     }
 }
