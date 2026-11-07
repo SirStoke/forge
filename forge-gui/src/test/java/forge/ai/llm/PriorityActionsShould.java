@@ -259,7 +259,9 @@ public class PriorityActionsShould {
                 final PromptRequest prompt = invocation.getArgument(0);
                 final String id = requestId(prompt);
                 Assert.assertTrue(prompt.text().contains("Protocol: priority (session instructions)."));
-                Assert.assertFalse(prompt.text().contains("Forest"), "Priority prompts must not contain the action list");
+                final String request = prompt.text().split("\nCurrent request:\n", 2)[1];
+                Assert.assertFalse(request.contains("Forest"), "The priority request must not inline the action list");
+                Assert.assertTrue(prompt.text().contains("Forest"), "The full context includes the current hand");
                 Assert.assertFalse(prompt.text().contains("cardId="));
                 Assert.assertTrue(session.mcp.callTool(session.list("wrong-request")).isError());
                 Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,

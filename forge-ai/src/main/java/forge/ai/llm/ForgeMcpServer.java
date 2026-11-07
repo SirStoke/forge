@@ -17,6 +17,7 @@ import forge.ai.llm.tools.PassPriority;
 import forge.ai.llm.tools.SubmitChoice;
 import forge.ai.llm.tools.SubmitSideboardPlan;
 import forge.ai.llm.tools.ObservePreviousGameLog;
+import forge.ai.llm.tools.SaveNotes;
 import forge.game.player.Player;
 import forge.util.BuildInfo;
 import forge.util.FileUtil;
@@ -40,9 +41,10 @@ final class ForgeMcpServer implements AutoCloseable {
     static final List<String> TOOL_NAMES = List.of(SubmitChoice.NAME, PayMana.NAME, CancelAction.NAME,
             Mulligan.NAME, SubmitSideboardPlan.NAME, CardDetails.NAME, RulesIndex.NAME, RuleText.NAME,
             ObserveStack.NAME, ObserveHand.NAME, ObserveDeck.NAME, ObservePreviousGameLog.NAME,
-            ObserveBattlefield.NAME, ObserveGameState.NAME, GetAvailableActions.NAME, PlayAction.NAME, PassPriority.NAME);
+            ObserveBattlefield.NAME, ObserveGameState.NAME, GetAvailableActions.NAME, PlayAction.NAME, PassPriority.NAME,
+            SaveNotes.NAME);
     static final List<String> READ_ONLY_TOOL_NAMES = TOOL_NAMES.stream()
-            .filter(name -> !ToolRepository.DECISIONS.contains(name)).toList();
+            .filter(name -> !ToolRepository.DECISIONS.contains(name) && !SaveNotes.NAME.equals(name)).toList();
     private final Tomcat tomcat = new Tomcat();
     private final McpSyncServer mcp;
     private final Path directory;
@@ -52,6 +54,7 @@ final class ForgeMcpServer implements AutoCloseable {
     private final CallbackOnce<SubmitSideboardPlan, String> sideboardDecision = new CallbackOnce<>();
     private final GameObserver game;
     private final AtomicReference<PriorityActionsSnapshot> priorityActions = new AtomicReference<>();
+    private final StringBuilder notes = new StringBuilder();
 
     private ForgeMcpServer(Player viewer, LlmMatchProfile.Session profile) throws IOException {
         directory = Files.createTempDirectory("forge-mcp-");
@@ -61,6 +64,7 @@ final class ForgeMcpServer implements AutoCloseable {
         game = new GameObserver(viewer);
 
         final ToolRepository tools = new ToolRepository(profile);
+        tools.register(SaveNotes::schema, SaveNotes::compile, request -> saveNotes(request.text()));
         tools.register(SubmitChoice::schema, SubmitChoice::compile,
                 request -> choiceDecision.call(request.requestId(), new ChoiceDecision.Choose(request)));
         tools.register(PayMana::schema, PayMana::compile,
@@ -157,6 +161,16 @@ final class ForgeMcpServer implements AutoCloseable {
 
     void refreshGameState() {
         game.refreshDeck();
+    }
+
+    private synchronized String saveNotes(String text) {
+        if (!notes.isEmpty()) notes.append("\n\n");
+        notes.append(text);
+        return "Notes saved. All saved notes will be included in subsequent decision prompts.";
+    }
+
+    synchronized String notes() {
+        return notes.toString();
     }
 
     CallbackOnce<ChoiceDecision, String> choiceDecision() {

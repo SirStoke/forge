@@ -17,6 +17,7 @@ import forge.ai.llm.tools.PassPriority;
 import forge.ai.llm.tools.SubmitChoice;
 import forge.ai.llm.tools.SubmitSideboardPlan;
 import forge.ai.llm.tools.ObservePreviousGameLog;
+import forge.ai.llm.tools.SaveNotes;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -48,7 +49,7 @@ public class ForgeMcpServerShould {
                         .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, RuleText.NAME, RulesIndex.NAME, ObserveStack.NAME,
                                 ObserveHand.NAME, ObserveBattlefield.NAME, ObserveGameState.NAME, PlayAction.NAME, PassPriority.NAME,
                                 SubmitChoice.NAME, GetAvailableActions.NAME, CancelAction.NAME, ObserveDeck.NAME, PayMana.NAME,
-                                SubmitSideboardPlan.NAME, ObservePreviousGameLog.NAME));
+                                SubmitSideboardPlan.NAME, ObservePreviousGameLog.NAME, SaveNotes.NAME));
                 Assert.assertTrue(client.callTool(new CallToolRequest(GetAvailableActions.NAME,
                         Map.of("requestId", "missing"))).isError());
             }
@@ -58,6 +59,30 @@ public class ForgeMcpServerShould {
                 .timeout(Duration.ofSeconds(2)).build();
         Assert.expectThrows(IOException.class,
                 () -> HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding()));
+    }
+
+    @Test
+    public void appendPrivateNotesWithoutSubmittingADecisionOrChangingAnotherPlayersNotes() {
+        try (var server = ForgeMcpServer.start(); var otherPlayer = ForgeMcpServer.start()) {
+            final var transport = HttpClientStreamableHttpTransport
+                    .builder(URI.create(server.getUrl()).resolve("/").toString()).endpoint("/mcp").build();
+            try (var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(5)).build()) {
+                client.initialize();
+                final String pending = server.mulliganDecision().register(keep -> "Accepted");
+                for (var args : java.util.List.<Map<String, Object>>of(Map.of(), Map.of("text", " "),
+                        Map.of("text", 42), Map.of("text", "Plan", "extra", true))) {
+                    Assert.assertTrue(client.callTool(new CallToolRequest(SaveNotes.NAME, args)).isError());
+                }
+                Assert.assertEquals(server.notes(), "");
+                for (String text : java.util.List.of("Build mana for a large threat.", "Answer their flyer first.")) {
+                    Assert.assertFalse(client.callTool(new CallToolRequest(SaveNotes.NAME, Map.of("text", text))).isError());
+                }
+                Assert.assertEquals(server.notes(), "Build mana for a large threat.\n\nAnswer their flyer first.");
+                Assert.assertEquals(otherPlayer.notes(), "");
+                Assert.assertTrue(server.mulliganDecision().isPending(pending));
+                Assert.assertFalse(ForgeMcpServer.READ_ONLY_TOOL_NAMES.contains(SaveNotes.NAME));
+            }
+        }
     }
 
     @Test

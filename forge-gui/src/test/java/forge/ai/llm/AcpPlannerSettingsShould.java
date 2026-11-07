@@ -31,6 +31,8 @@ public class AcpPlannerSettingsShould {
             Assert.assertEquals(planner.path("mode").asText(), "subagent");
             Assert.assertEquals(planner.path("permission").path("*").asText(), "deny");
             Assert.assertEquals(planner.path("permission").size(), ForgeMcpServer.READ_ONLY_TOOL_NAMES.size() + 1);
+            Assert.assertEquals(parent.path("mtg-forge_save_notes").asText(), "allow");
+            Assert.assertFalse(planner.path("permission").has("mtg-forge_save_notes"));
             ForgeMcpServer.READ_ONLY_TOOL_NAMES.forEach(name ->
                     Assert.assertEquals(planner.path("permission").path("mtg-forge_" + name).asText(), "allow"));
             ToolRepository.DECISIONS.forEach(name -> Assert.assertFalse(planner.path("permission").has("mtg-forge_" + name)));

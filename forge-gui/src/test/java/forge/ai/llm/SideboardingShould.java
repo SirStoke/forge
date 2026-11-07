@@ -182,7 +182,7 @@ public class SideboardingShould {
             registered.get(DeckSection.Sideboard).remove(card("Artifact answer", "ONE"), 2);
             registered.get(DeckSection.Sideboard).add(card("Main card", "ONE"), 2);
             game.fireEvent(new GameEventGameStarted(GameType.Constructed, player, game.getPlayers()));
-            Assert.assertEquals(starts.get(), 1, "Sideboarding and gameplay share one session");
+            Assert.assertEquals(starts.get(), 1, "Sideboarding and gameplay reuse the same ACP adapter");
             try (var mcp = connect(url.get())) {
                 final var response = mcp.callTool(new CallToolRequest(ObserveDeck.NAME, Map.of()));
                 Assert.assertFalse(response.isError());

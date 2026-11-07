@@ -248,8 +248,9 @@ public class GameplayChoicesShould {
                             .map(line -> Integer.parseInt(line.substring(0, line.indexOf(':')))).toList();
                     return Map.of("requestId", s.id(prompt), "choices", order);
                 }
-                if (prompt.contains("Sacrifice")) return s.choices(prompt, "Sacrifice creature id=");
-                if (prompt.contains("Discard")) return s.choices(prompt, "Discard me id=");
+                final String request = prompt.split("\nCurrent request:\n", 2)[1];
+                if (request.contains("Sacrifice")) return s.choices(request, "Sacrifice creature id=");
+                if (request.contains("Discard")) return s.choices(request, "Discard me id=");
                 throw new AssertionError(prompt);
             });
             Assert.assertTrue(s.controller.playChosenSpellAbility(spell.getSpellAbilities().get(0)));

@@ -28,9 +28,14 @@ import forge.ai.LobbyPlayerAi;
 import forge.ai.llm.tools.ObserveStack;
 import forge.ai.llm.tools.ObserveHand;
 import forge.ai.llm.tools.ObserveBattlefield;
+import forge.ai.llm.tools.SaveNotes;
+import forge.card.CardRarity;
+import forge.card.CardRules;
+import forge.item.PaperCard;
 import forge.deck.Deck;
 import forge.game.Game;
 import forge.game.GameRules;
+import forge.game.GameLogEntryType;
 import forge.game.GameType;
 import forge.game.Match;
 import forge.game.card.Card;
@@ -357,6 +362,12 @@ public class AcpAgentShould {
                 order.verify(client).prompt(prompt.capture());
                 Assert.assertTrue(prompt.getValue().text().contains(models.planningModel()));
                 Assert.assertFalse(prompt.getValue().text().contains("&#"), "Provider/model IDs must remain literal");
+                agent.prompt("Next decision");
+                verify(client, times(2)).newSession(any());
+                verify(client, times(2)).prompt(prompt.capture());
+                Assert.assertTrue(prompt.getValue().text().contains(models.planningModel()),
+                        "Fresh conversations must retain the selected planning model and consultation instructions");
+                Assert.assertTrue(prompt.getValue().text().contains("Strategic consultation:"));
             }
         }
     }
@@ -456,6 +467,98 @@ public class AcpAgentShould {
     }
 
     @Test
+    public void startFreshConversationsWithTheFullLogGameContextAndSavedNotes() {
+        final var game = newGame();
+        final var player = game.getPlayers().get(0);
+        final var opponent = game.getPlayers().get(1);
+        player.setStartingLife(20);
+        opponent.setStartingLife(17);
+        player.getRegisteredPlayer().getDeck().getMain().add(new PaperCard(CardRules.fromScript(
+                List.of("Name:Registered plan card", "ManaCost:0", "Types:Artifact", "Oracle:")), "", CardRarity.Common), 2);
+        final var hand = new Card(game.nextCardId(), game);
+        hand.setOwner(player);
+        hand.setName("Current hand card");
+        player.getZone(ZoneType.Hand).add(hand);
+        final var battlefield = new Card(game.nextCardId(), game);
+        battlefield.setOwner(opponent);
+        battlefield.setName("Opponent public threat");
+        opponent.getZone(ZoneType.Battlefield).add(battlefield);
+        final var hidden = new Card(game.nextCardId(), game);
+        hidden.setOwner(opponent);
+        hidden.setName("Opponent private card");
+        opponent.getZone(ZoneType.Hand).add(hidden);
+        final var client = clientSelecting(AcpAgent.MODEL);
+        final var sessions = new AtomicInteger();
+        final var url = new AtomicReference<String>();
+        when(client.newSession(any())).thenAnswer(invocation -> {
+            final NewSessionRequest request = invocation.getArgument(0);
+            url.set(((McpServerHttp) request.mcpServers().get(0)).url());
+            return new NewSessionResponse("session-" + sessions.incrementAndGet());
+        });
+        game.getGameLog().add(GameLogEntryType.TURN, "First turn");
+        game.getGameLog().add(GameLogEntryType.MANA, "One tapped Island");
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY, player);
+             var mcp = McpClient.sync(HttpClientStreamableHttpTransport.builder(url.get()).build())
+                     .requestTimeout(Duration.ofSeconds(5)).build()) {
+            mcp.initialize();
+            Assert.assertFalse(mcp.callTool(new CallToolRequest(SaveNotes.NAME,
+                    Map.of("text", "Develop mana, then answer the threat."))).isError());
+            agent.prompt("First decision");
+            game.getGameLog().add(GameLogEntryType.DAMAGE, "Two took 3 damage");
+            opponent.setLife(14, null);
+            hand.setName("Updated hand card");
+            battlefield.setTapped(true);
+            Assert.assertFalse(mcp.callTool(new CallToolRequest(SaveNotes.NAME,
+                    Map.of("text", "The threat is tapped; set up lethal next turn."))).isError());
+            agent.prompt("Second decision");
+
+            final var prompts = ArgumentCaptor.forClass(PromptRequest.class);
+            verify(client, times(3)).prompt(prompts.capture());
+            final var first = prompts.getAllValues().get(1);
+            final var second = prompts.getAllValues().get(2);
+            Assert.assertEquals(first.sessionId(), "session-2");
+            Assert.assertEquals(second.sessionId(), "session-3");
+            Assert.assertEquals(agent.getSessionId(), "session-3");
+            final String log = String.join("\n", game.getGameLog().getAllEntries().stream()
+                    .map(Object::toString).toList());
+            Assert.assertTrue(second.text().contains(log), "Include every log type in chronological order");
+            Assert.assertFalse(first.text().contains("Two took 3 damage"));
+            Assert.assertTrue(second.text().startsWith("You are an AI player for Magic: The Gathering"));
+            Assert.assertEquals(currentRequest(second), "Second decision");
+            Assert.assertFalse(second.text().contains("First decision"));
+            for (var prompt : List.of(first, second)) {
+                Assert.assertTrue(prompt.text().contains("Your registered deck list:\n"));
+                Assert.assertTrue(prompt.text().contains("\"name\":\"Registered plan card\",\"count\":2"));
+                Assert.assertTrue(prompt.text().contains("Your current hand:\n"));
+                Assert.assertTrue(prompt.text().contains("Life totals:\nOne (id=0): 20"));
+                Assert.assertTrue(prompt.text().contains("Battlefield (all players):\n"));
+                Assert.assertTrue(prompt.text().contains("Opponent public threat"));
+                Assert.assertFalse(prompt.text().contains("Opponent private card"));
+                Assert.assertTrue(prompt.text().contains("Develop mana, then answer the threat."));
+                Assert.assertTrue(prompt.text().contains("Before EVERY gameplay decision, call save_notes"));
+            }
+            Assert.assertTrue(first.text().contains("Current hand card"));
+            Assert.assertTrue(first.text().contains("Two (id=1): 17"));
+            Assert.assertFalse(first.text().contains("The threat is tapped; set up lethal next turn."));
+            Assert.assertFalse(second.text().contains("Current hand card"));
+            Assert.assertTrue(second.text().contains("Updated hand card"));
+            Assert.assertTrue(second.text().contains("Two (id=1): 14"));
+            Assert.assertTrue(second.text().contains("\"tapped\":true"));
+            Assert.assertTrue(second.text().contains("Develop mana, then answer the threat.\n\n"
+                    + "The threat is tapped; set up lethal next turn."));
+            for (int i = 1; i <= 3; i++) {
+                verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("session-" + i, "model", AcpAgent.MODEL));
+                verify(client).setSessionConfigOption(SetSessionConfigOptionRequest.select("session-" + i, "reasoning_effort", AcpAgent.REASONING_EFFORT));
+            }
+            final var requests = ArgumentCaptor.forClass(NewSessionRequest.class);
+            verify(client, times(3)).newSession(requests.capture());
+            Assert.assertEquals(Set.copyOf(requests.getAllValues()).size(), 1,
+                    "Reuse the working directory, game tool endpoint and harness metadata");
+            verify(client).initialize();
+        }
+    }
+
+    @Test
     public void bufferPromptsInOrderAndContinueAfterAResponseFailsWithoutCancellingAcceptedDecisions() throws Exception {
         final var client = clientSelecting(AcpAgent.MODEL);
         try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
@@ -466,8 +569,8 @@ public class AcpAgentShould {
             final var turns = Map.of("First", first, "Second", second, "Third", third);
             when(client.async().prompt(any())).thenAnswer(invocation -> {
                 final PromptRequest request = invocation.getArgument(0);
-                requests.add(request.text());
-                return Mono.fromFuture(turns.get(request.text()));
+                requests.add(currentRequest(request));
+                return Mono.fromFuture(turns.get(currentRequest(request)));
             });
             agent.prompt("First", "one", "choice", "First", CompletableFuture.completedFuture("accepted"));
             Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "First");
@@ -506,8 +609,8 @@ public class AcpAgentShould {
                 final var buffered = new CompletableFuture<PromptResponse>();
                 when(client.async().prompt(any())).thenAnswer(invocation -> {
                     final PromptRequest request = invocation.getArgument(0);
-                    requests.add(request.text());
-                    return Mono.fromFuture("Active".equals(request.text()) ? active : buffered);
+                    requests.add(currentRequest(request));
+                    return Mono.fromFuture("Active".equals(currentRequest(request)) ? active : buffered);
                 });
                 agent.prompt("Active", "active", "priority", "Active", CompletableFuture.completedFuture("accepted"));
                 Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Active");
@@ -570,10 +673,12 @@ public class AcpAgentShould {
             started.get(5, TimeUnit.SECONDS);
             final var waiting = CompletableFuture.runAsync(() -> agent.prompt("Wait for completion"));
             Assert.expectThrows(java.util.concurrent.TimeoutException.class, () -> waiting.get(100, TimeUnit.MILLISECONDS));
-            verify(client, times(0)).prompt(PromptRequest.text("test-session", "Wait for completion"));
+            verify(client, times(1)).prompt(any());
             active.complete(null);
             waiting.get(5, TimeUnit.SECONDS);
-            verify(client).prompt(PromptRequest.text("test-session", "Wait for completion"));
+            final var prompts = ArgumentCaptor.forClass(PromptRequest.class);
+            verify(client, times(2)).prompt(prompts.capture());
+            Assert.assertEquals(currentRequest(prompts.getValue()), "Wait for completion");
             Assert.assertFalse(active.isCancelled());
         }
     }
@@ -807,6 +912,10 @@ public class AcpAgentShould {
         } finally {
             game.fireEvent(new GameEventGameFinished());
         }
+    }
+
+    private String currentRequest(PromptRequest request) {
+        return request.text().split("\nCurrent request:\n", 2)[1];
     }
 
     private String mulliganRequestId(PromptRequest request) {

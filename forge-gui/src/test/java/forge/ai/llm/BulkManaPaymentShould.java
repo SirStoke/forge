@@ -226,7 +226,7 @@ public class BulkManaPaymentShould {
             s.prompts.clear();
             answer(s, prompt -> {
                 Assert.assertTrue(s.mcp.callTool(plan(s, prompt, List.of(Map.of("option", 0)))).isError(), "Not a mana prompt");
-                Assert.assertFalse(prompt.contains("Payment: pay_mana"));
+                Assert.assertFalse(prompt.lines().anyMatch("Payment: pay_mana"::equals));
                 return new CallToolRequest(SubmitChoice.NAME, Map.of("requestId", s.id(prompt), "value", 1));
             });
             Assert.assertEquals(s.controller.chooseNumber(null, "Effect number", 0, 2), 1);

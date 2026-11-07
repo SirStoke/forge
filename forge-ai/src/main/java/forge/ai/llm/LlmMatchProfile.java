@@ -155,7 +155,7 @@ final class LlmMatchProfile {
         private final WeakReference<Player> player;
         private final ArrayDeque<Span> scopes = new ArrayDeque<>();
         private volatile Request request;
-        private String sessionId = "";
+        private volatile String sessionId = "";
         private String model = "";
         private String reasoningEffort = "";
         private Span action;
@@ -238,6 +238,7 @@ final class LlmMatchProfile {
             if (active == null || !profile.enabled()) return NO_SPAN;
             active.tools.incrementAndGet();
             final var data = new LinkedHashMap<>(active.span.context);
+            data.put("sessionId", sessionId);
             data.put("parentId", active.span.id);
             data.put("requestId", active.id);
             return new Span(profile, "tool", name, data, ignored -> { });
@@ -291,6 +292,11 @@ final class LlmMatchProfile {
         }
 
         void failed() { span.data("outcome", "error"); }
+
+        void sessionId(String id) {
+            session.sessionId = id;
+            span.data("sessionId", id);
+        }
 
         @Override
         public void close() {
