@@ -14,6 +14,7 @@ import forge.ai.llm.tools.ObserveBattlefield;
 import forge.ai.llm.tools.ObserveGameState;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.PassPriority;
+import forge.ai.llm.tools.PassUntilOpponentTurn;
 import forge.ai.llm.tools.SubmitChoice;
 import forge.ai.llm.tools.SubmitSideboardPlan;
 import forge.ai.llm.tools.ObservePreviousGameLog;
@@ -49,7 +50,7 @@ public class ForgeMcpServerShould {
                         .collect(Collectors.toSet()), Set.of(Mulligan.NAME, CardDetails.NAME, RuleText.NAME, RulesIndex.NAME, ObserveStack.NAME,
                                 ObserveHand.NAME, ObserveBattlefield.NAME, ObserveGameState.NAME, PlayAction.NAME, PassPriority.NAME,
                                 SubmitChoice.NAME, GetAvailableActions.NAME, CancelAction.NAME, ObserveDeck.NAME, PayMana.NAME,
-                                SubmitSideboardPlan.NAME, ObservePreviousGameLog.NAME, SaveNotes.NAME));
+                                SubmitSideboardPlan.NAME, ObservePreviousGameLog.NAME, SaveNotes.NAME, PassUntilOpponentTurn.NAME));
                 Assert.assertTrue(client.callTool(new CallToolRequest(GetAvailableActions.NAME,
                         Map.of("requestId", "missing"))).isError());
             }

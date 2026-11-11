@@ -17,6 +17,7 @@ import forge.ai.LobbyPlayerAi;
 import forge.ai.llm.tools.CancelAction;
 import forge.ai.llm.tools.GetAvailableActions;
 import forge.ai.llm.tools.PassPriority;
+import forge.ai.llm.tools.PassUntilOpponentTurn;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.SubmitChoice;
 import forge.card.CardRarity;
@@ -31,6 +32,7 @@ import forge.game.card.Card;
 import forge.game.card.CardFactory;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
+import forge.game.event.GameEventTurnBegan;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.player.PlayerController.FullControlFlag;
@@ -260,15 +262,14 @@ public class PriorityActionsShould {
                 final String id = requestId(prompt);
                 Assert.assertTrue(prompt.text().contains("Protocol: priority (session instructions)."));
                 final String request = prompt.text().split("\nCurrent request:\n", 2)[1];
-                Assert.assertFalse(request.contains("Forest"), "The priority request must not inline the action list");
-                Assert.assertTrue(prompt.text().contains("Forest"), "The full context includes the current hand");
-                Assert.assertFalse(prompt.text().contains("cardId="));
+                Assert.assertTrue(request.contains("Available actions (cost affordability has not been checked):"));
                 Assert.assertTrue(session.mcp.callTool(session.list("wrong-request")).isError());
                 Assert.assertTrue(session.mcp.callTool(new CallToolRequest(CancelAction.NAME,
                         Map.of("requestId", id))).isError(), "Priority itself cannot be canceled");
                 final var snapshot = session.actions(prompt);
                 Assert.assertEquals(session.actions(prompt), snapshot, "Reads must not consume the decision");
                 final String actions = describeActions(snapshot);
+                Assert.assertTrue(request.contains(actions), "The prompt must contain the exact action list exposed by MCP");
                 Assert.assertTrue(actions.contains("cardId=" + second.getId() + ", abilityId=" + abilityId));
                 Assert.assertFalse(actions.contains("Opponent secret"));
                 Assert.assertTrue(session.mcp.callTool(session.play(id, opponentCard.getId(), abilityId)).isError());
@@ -563,6 +564,122 @@ public class PriorityActionsShould {
             Assert.assertEquals(selected.get(0).getId(), secondId);
             Assert.assertTrue(session.controller.playChosenSpellAbility(selected.get(0)));
             Assert.assertEquals(session.game.getStack().peek().getSpellAbility().getApi(), forge.game.ability.ApiType.GainLife);
+        }
+    }
+
+    @Test
+    public void passWithoutCallingTheLlmOnlyWhenThereAreNoPriorityActions() {
+        try (var session = new Session()) {
+            org.mockito.Mockito.clearInvocations(session.client, session.async);
+            Assert.assertTrue(PriorityActions.available(session.player).isEmpty());
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.client, org.mockito.Mockito.never()).newSession(any());
+            org.mockito.Mockito.verify(session.async, org.mockito.Mockito.never()).prompt(any());
+
+            final var source = session.card(session.player, ZoneType.Battlefield, "Mana source",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T | Produced$ U | SpellDescription$ Add {U}.");
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                Assert.assertTrue(prompt.text().contains("Mana source [Battlefield; Activate mana ability; cost:"));
+                Assert.assertFalse(session.mcp.callTool(new CallToolRequest(PassPriority.NAME,
+                        Map.of("requestId", requestId(prompt)))).isError());
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.async).prompt(any());
+
+            session.game.getAction().moveToGraveyard(source, null);
+            Assert.assertTrue(PriorityActions.available(session.player).isEmpty());
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.async).prompt(any());
+        }
+    }
+
+    @Test
+    public void yieldPriorityUntilTheOpponentTurnWhileStillAnsweringRequiredChoices() {
+        try (var session = new Session()) {
+            session.card(session.player, ZoneType.Battlefield, "Mana source", "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T | Produced$ U | SpellDescription$ Add {U}.");
+            final var yieldedRequest = new AtomicReference<String>();
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                final String id = requestId(prompt);
+                if (prompt.text().contains("\nProtocol: choice (session instructions).")) {
+                    Assert.assertTrue(session.mcp.callTool(new CallToolRequest(PassUntilOpponentTurn.NAME,
+                            Map.of("requestId", id))).isError(), "Yielding must not consume a required choice");
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(SubmitChoice.NAME,
+                            Map.of("requestId", id, "value", 2))).isError());
+                } else if (yieldedRequest.get() == null) {
+                    yieldedRequest.set(id);
+                    Assert.assertTrue(session.mcp.callTool(new CallToolRequest(PassUntilOpponentTurn.NAME,
+                            Map.of("requestId", "stale"))).isError());
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(PassUntilOpponentTurn.NAME,
+                            Map.of("requestId", id))).isError());
+                } else {
+                    Assert.assertTrue(session.mcp.callTool(new CallToolRequest(PassUntilOpponentTurn.NAME,
+                            Map.of("requestId", id))).isError(), "Use ordinary passing on an opponent's turn");
+                    Assert.assertFalse(session.mcp.callTool(new CallToolRequest(PassPriority.NAME,
+                            Map.of("requestId", id))).isError(), "A rejected yield must leave priority pending");
+                }
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            Assert.assertTrue(session.mcp.callTool(new CallToolRequest(PassUntilOpponentTurn.NAME,
+                    Map.of("requestId", yieldedRequest.get()))).isError(), "The accepted request must expire");
+            org.mockito.Mockito.clearInvocations(session.client, session.async);
+
+            session.game.getPhaseHandler().devModeSet(PhaseType.MAIN2, session.player, false, 1);
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            final var source = session.card(session.opponent, ZoneType.Battlefield, "Opponent source",
+                    "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ GainLife | Cost$ 0 | LifeAmount$ 1 | SpellDescription$ Gain 1 life.");
+            final var ability = source.getSpellAbilities().get(0);
+            ability.setActivatingPlayer(session.opponent);
+            ability.setCopied(true);
+            session.game.getStack().add(ability);
+            Assert.assertFalse(session.game.getStack().isEmpty());
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay(), "Keep yielding even if the stack changes");
+            org.mockito.Mockito.verify(session.async, org.mockito.Mockito.never()).prompt(any());
+
+            Assert.assertEquals(session.controller.chooseNumber(null, "Required effect choice", 1, 3), 2);
+            session.game.getPhaseHandler().devModeSet(PhaseType.END_OF_TURN, session.player, false, 1);
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.async).prompt(any());
+
+            session.game.getPhaseHandler().devModeSet(PhaseType.UPKEEP, session.opponent, false, 2);
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.async, org.mockito.Mockito.times(2)).prompt(any());
+        }
+    }
+
+    @Test
+    public void clearYieldOnAnOpponentTurnEvenWithoutReceivingPriorityAndPreserveItAcrossOwnExtraTurns() {
+        try (var session = new Session()) {
+            session.card(session.player, ZoneType.Battlefield, "Mana source", "ManaCost:0", "Types:Artifact", "Oracle:",
+                    "A:AB$ Mana | Cost$ T | Produced$ U | SpellDescription$ Add {U}.");
+            final var yieldedRequest = new AtomicReference<String>();
+            doAnswer(invocation -> {
+                final PromptRequest prompt = invocation.getArgument(0);
+                final String tool = yieldedRequest.compareAndSet(null, requestId(prompt))
+                        ? PassUntilOpponentTurn.NAME : PassPriority.NAME;
+                Assert.assertFalse(session.mcp.callTool(new CallToolRequest(tool,
+                        Map.of("requestId", requestId(prompt)))).isError());
+                return null;
+            }).when(session.client).prompt(any());
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, session.player, false, 2);
+            session.game.fireEvent(new GameEventTurnBegan(session.player.getView(), 2));
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.async).prompt(any());
+
+            session.game.getPhaseHandler().devModeSet(PhaseType.UPKEEP, session.opponent, false, 3);
+            session.game.fireEvent(new GameEventTurnBegan(session.opponent.getView(), 3));
+            // No priority call occurs during the opponent's turn.
+            session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, session.player, false, 4);
+            session.game.fireEvent(new GameEventTurnBegan(session.player.getView(), 4));
+            Assert.assertNull(session.controller.chooseSpellAbilityToPlay());
+            org.mockito.Mockito.verify(session.async, org.mockito.Mockito.times(2)).prompt(any());
         }
     }
 

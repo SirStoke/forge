@@ -20,7 +20,7 @@ public record CardDetails(String name) {
                 .inputSchema(Map.of(
                         "type", "object",
                         "properties", Map.of("name", Map.of("type", "string", "minLength", 1,
-                                "pattern", "\\S", "description", "Card name, for example Lightning Bolt")),
+                                "description", "Card name, for example Lightning Bolt")),
                         "required", List.of("name"),
                         "additionalProperties", false))
                 .build();

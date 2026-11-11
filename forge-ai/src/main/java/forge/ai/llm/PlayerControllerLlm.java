@@ -3,11 +3,13 @@ package forge.ai.llm;
 import com.google.common.eventbus.Subscribe;
 import forge.LobbyPlayer;
 import forge.ai.llm.tools.SubmitSideboardPlan;
+import forge.ai.llm.tools.PassUntilOpponentTurn;
 import forge.deck.Deck;
 import forge.game.Game;
 import forge.game.GameType;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
+import forge.game.event.GameEventTurnBegan;
 import forge.game.player.Player;
 import forge.game.player.PlaySpellAbility;
 import forge.game.spellability.SpellAbility;
@@ -29,6 +31,7 @@ public class PlayerControllerLlm extends LlmDecisionController {
     private boolean initializationAttempted;
     private boolean finished;
     private boolean passAfterFailedPlay;
+    private boolean yieldUntilOpponentTurn;
     private List<String> sideboardingReport = List.of();
 
     @Override
@@ -59,6 +62,15 @@ public class PlayerControllerLlm extends LlmDecisionController {
         initializeAgent();
         // A session started for sideboarding must now publish the deck actually prepared by Match.
         if (agent != null) agent.refreshGameState();
+    }
+
+    @Subscribe
+    public void onTurnBegan(GameEventTurnBegan event) {
+        // Clear even if this player never receives priority during the opponent's turn.
+        if (yieldUntilOpponentTurn && player.getOpponents().stream()
+                .anyMatch(opponent -> opponent.getId() == event.turnOwner().getId())) {
+            yieldUntilOpponentTurn = false;
+        }
     }
 
     private void initializeAgent() {
@@ -209,6 +221,11 @@ public class PlayerControllerLlm extends LlmDecisionController {
 
     private List<SpellAbility> chooseLlmAction() {
         if (getGame().isSimulationCopy()) return super.chooseSpellAbilityToPlay();
+        if (yieldUntilOpponentTurn) {
+            final Player turnPlayer = getGame().getPhaseHandler().getPlayerTurn();
+            if (turnPlayer == null || !turnPlayer.isOpponentOf(player)) return null;
+            yieldUntilOpponentTurn = false;
+        }
         if (passAfterFailedPlay) {
             passAfterFailedPlay = false;
             return null;
@@ -225,27 +242,37 @@ public class PlayerControllerLlm extends LlmDecisionController {
                 preparation.data("optionCount", options.size());
             }
             if (options.isEmpty()) {
+                // With no available play or ability, pass without starting an LLM conversation.
                 return null;
             }
             final var decision = new CompletableFuture<PriorityDecision>();
             final var callback = agent.priorityDecision();
+            final boolean ownTurn = getGame().getPhaseHandler().isPlayerTurn(player);
             final String requestId = callback.register(choice -> {
+                if (choice instanceof PriorityDecision.PassUntilOpponentTurn && !ownTurn) {
+                    throw new IllegalArgumentException("pass_until_opponent_turn is only available on your own turn; use pass_priority.");
+                }
                 if (choice instanceof PriorityDecision.PlayAction play && options.containsKey(play)
-                        || choice instanceof PriorityDecision.Pass) {
+                        || choice instanceof PriorityDecision.Pass || choice instanceof PriorityDecision.PassUntilOpponentTurn) {
                     return;
                 }
-                throw new IllegalArgumentException("Choose a cardId and abilityId pair returned by get_available_actions, or pass.");
+                throw new IllegalArgumentException("Choose a cardId and abilityId pair from the current action list, or pass.");
             }, choice -> {
                 // Only publish IDs here; all game objects stay on the game thread.
-                agent.profile().accepted(choice instanceof PriorityDecision.PlayAction ? "play_action" : "pass_priority");
+                agent.profile().accepted(choice instanceof PriorityDecision.PlayAction ? "play_action"
+                        : choice instanceof PriorityDecision.PassUntilOpponentTurn ? PassUntilOpponentTurn.NAME : "pass_priority");
                 decision.complete(choice);
-                return "Priority decision accepted.";
+                return choice instanceof PriorityDecision.PassUntilOpponentTurn
+                        ? "Priority passed. Further priority will pass automatically until an opponent's turn begins. Required choices still need decisions."
+                        : "Priority decision accepted.";
             });
             try {
+                final PriorityActionsSnapshot snapshot;
                 try (var preparation = agent.profile().scope("preparation", "Capture priority options")) {
-                    agent.setPriorityActions(PriorityActionsSnapshot.capture(player, requestId, options));
+                    snapshot = PriorityActionsSnapshot.capture(player, requestId, options);
+                    agent.setPriorityActions(snapshot);
                 }
-                agent.prompt(PriorityPrompt.render(player, requestId), requestId, "priority", "Choose priority action", decision);
+                agent.prompt(PriorityPrompt.render(player, snapshot), requestId, "priority", "Choose priority action", decision);
             } catch (RuntimeException e) {
                 Logger.error(e, "Could not request a priority decision for {}", player.getName());
             } finally {
@@ -261,6 +288,10 @@ public class PlayerControllerLlm extends LlmDecisionController {
             if (selected instanceof PriorityDecision.PlayAction play) {
                 agent.profile().actionName(options.get(play).getDescription());
                 return List.of(options.get(play));
+            }
+            if (selected instanceof PriorityDecision.PassUntilOpponentTurn) {
+                // The MCP callback publishes the choice; only the game thread changes controller behavior.
+                yieldUntilOpponentTurn = true;
             }
         } catch (RuntimeException e) {
             Logger.error(e, "Could not choose a play for {}; passing priority", player.getName());

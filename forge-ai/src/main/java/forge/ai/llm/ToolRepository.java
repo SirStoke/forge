@@ -19,7 +19,7 @@ import java.util.function.Supplier;
 /** Registers typed tools at startup and adapts their callbacks to MCP. */
 public final class ToolRepository {
     static final Set<String> DECISIONS = Set.of("submit_choice", "pay_mana", "cancel_action",
-            "submit_mulligan_decision", "submit_sideboard_plan", "play_action", "pass_priority");
+            "submit_mulligan_decision", "submit_sideboard_plan", "play_action", "pass_priority", "pass_until_opponent_turn");
     private final List<SyncToolSpecification> tools = new ArrayList<>();
     private final LlmMatchProfile.Session profile;
 

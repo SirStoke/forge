@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** An ACP adapter with a fresh conversation for each prompt and an MCP endpoint for game decisions. */
+/** An ACP adapter with a fresh conversation for each game turn and an MCP endpoint for game decisions. */
 final class AcpAgent implements AutoCloseable {
     // Defaults; each session captures its own options when it starts.
     static final String MODEL = "gpt-6.1-terra";
@@ -66,7 +66,7 @@ final class AcpAgent implements AutoCloseable {
     private final AcpModels models;
     private final Player player;
     private final String instructions;
-    private boolean sessionUsed;
+    private GameTurn sessionTurn;
     private final ForgeMcpServer mcpServer;
     private final ConversationLog conversation;
     private final Options options;
@@ -77,6 +77,15 @@ final class AcpAgent implements AutoCloseable {
     private final Set<CompletableFuture<?>> pendingTurns = ConcurrentHashMap.newKeySet();
     private final Object promptQueueLock = new Object();
     private CompletableFuture<Void> promptTail = CompletableFuture.completedFuture(null);
+
+    /** Frozen on the game thread so buffered prompts retain the turn they belong to. */
+    private record GameTurn(int number, int playerId) {
+        static GameTurn capture(Player viewer) {
+            if (viewer == null) return new GameTurn(0, -1);
+            final var phase = viewer.getGame().getPhaseHandler();
+            return new GameTurn(phase.getTurn(), phase.getPlayerTurn() == null ? -1 : phase.getPlayerTurn().getId());
+        }
+    }
 
     private AcpAgent(AcpSyncClient client, String sessionId, ForgeMcpServer mcpServer,
                           ConversationLog conversation, Options options, LlmMatchProfile.Session profile,
@@ -89,6 +98,7 @@ final class AcpAgent implements AutoCloseable {
         this.models = models;
         this.player = player;
         this.instructions = PromptTemplates.load("conversation-start.mustache").execute(Map.of(
+                "hasPlanningModel", !models.planningModel().isEmpty(),
                 "planningInstructions", AcpAgentSettings.planningInstructions(agentId, models)));
         this.mcpServer = mcpServer;
         this.conversation = conversation;
@@ -143,7 +153,7 @@ final class AcpAgent implements AutoCloseable {
                         .requestPermissionHandler(request -> AcpAgentSettings.approvePermission(entry.id(), request))
                         // First launch may also need to download the pinned adapter.
                         .requestTimeout(Duration.ofMinutes(2))
-                        .promptTimeout(Duration.ofMinutes(2))
+                        .promptTimeout(Duration.ofMinutes(5))
                         .build();
                 return initialize(client, workingDirectory, conversation, player, options, profile, entry.id(), launch, models);
             } catch (RuntimeException e) {
@@ -303,6 +313,12 @@ final class AcpAgent implements AutoCloseable {
                         .append("): ").append(participant.getLife()).append('\n');
             }
             appendSnapshot(prompt, "Battlefield (all players)", CardsSnapshot.battlefield(player));
+            final var stack = StackSnapshot.capture(player);
+            if (stack.items().isEmpty()) {
+                prompt.append("\nCurrent stack (top resolves first):\nThe stack is empty.\n");
+            } else {
+                appendSnapshot(prompt, "Current stack (top resolves first)", stack);
+            }
         }
         final String notes = mcpServer.notes();
         prompt.append("\nSaved plans and notes (chronological):\n").append(notes.isEmpty() ? "None yet." : notes).append('\n');
@@ -370,6 +386,7 @@ final class AcpAgent implements AutoCloseable {
     /** Wait for a submitted decision or an unanswered/failed turn, whichever arrives first. */
     void prompt(String text, String requestId, String decisionType, String title, CompletableFuture<?> decision) {
         if (closed.get()) throw new IllegalStateException("ACP session is closed");
+        final GameTurn gameTurn = GameTurn.capture(player);
         final String initialText = initialPrompt(text);
         try (var request = profile.beginRequest(requestId, decisionType, title, initialText)) {
             try {
@@ -380,13 +397,13 @@ final class AcpAgent implements AutoCloseable {
                 try (var wait = profile.scope("agent_wait", "Agent / transport wait")) {
                     if (decision == null) {
                         try {
-                            queuePrompt(initialText, requestId, true, request).join();
+                            queuePrompt(initialText, requestId, true, request, gameTurn).join();
                         } catch (CompletionException e) {
                             if (e.getCause() instanceof RuntimeException cause) throw cause;
                             throw e;
                         }
                     } else {
-                        final var turn = queuePrompt(initialText, requestId, false, request);
+                        final var turn = queuePrompt(initialText, requestId, false, request, gameTurn);
                         try {
                             CompletableFuture.anyOf(decision, turn).join();
                         } catch (CompletionException e) {
@@ -407,7 +424,7 @@ final class AcpAgent implements AutoCloseable {
 
     /** Buffer transport requests, while callers can still return as soon as an MCP decision is accepted. */
     private CompletableFuture<PromptResponse> queuePrompt(String text, String requestId, boolean synchronous,
-                                                           LlmMatchProfile.Request profileRequest) {
+                                                           LlmMatchProfile.Request profileRequest, GameTurn gameTurn) {
         final var turn = new CompletableFuture<PromptResponse>();
         final var finished = new CompletableFuture<Void>();
         final var transport = new AtomicReference<CompletableFuture<PromptResponse>>();
@@ -439,12 +456,12 @@ final class AcpAgent implements AutoCloseable {
                 return;
             }
             try {
-                if (sessionUsed) {
+                if (sessionTurn != null && !sessionTurn.equals(gameTurn)) {
                     final var session = client.newSession(sessionRequest);
                     configureSession(client, session, agentId, models, options);
                     sessionId = session.sessionId();
                 }
-                sessionUsed = true;
+                sessionTurn = gameTurn;
                 if (closed.get() || turn.isDone()) {
                     turn.cancel(true);
                     return;

@@ -7,4 +7,7 @@ sealed interface PriorityDecision {
 
     record Pass() implements PriorityDecision {
     }
+
+    record PassUntilOpponentTurn() implements PriorityDecision {
+    }
 }

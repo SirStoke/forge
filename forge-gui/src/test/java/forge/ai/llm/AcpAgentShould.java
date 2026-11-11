@@ -42,8 +42,11 @@ import forge.game.card.Card;
 import forge.game.event.GameEventGameFinished;
 import forge.game.event.GameEventGameStarted;
 import forge.game.player.RegisteredPlayer;
+import forge.game.phase.PhaseType;
+import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.Localizer;
+import forge.util.Lang;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -86,6 +89,7 @@ public class AcpAgentShould {
     @BeforeClass
     public void initializeLanguage() {
         Localizer.getInstance().initialize("en-US", "res/languages/");
+        Lang.createInstance("en-US");
     }
 
     private AcpSyncClient clientSelecting(String model) {
@@ -124,6 +128,16 @@ public class AcpAgentShould {
             Assert.assertEquals(request.getValue().mcpServers().size(), 1);
             Assert.assertEquals(((McpServerHttp) request.getValue().mcpServers().get(0)).name(), "mtg-forge");
             verify(client).prompt(any());
+            agent.prompt("Next decision");
+            final var prompts = ArgumentCaptor.forClass(PromptRequest.class);
+            verify(client, times(2)).prompt(prompts.capture());
+            for (var prompt : prompts.getAllValues()) {
+                Assert.assertTrue(prompt.text().contains("Strategic planning:"));
+                Assert.assertTrue(prompt.text().contains("think through the plan yourself"));
+                Assert.assertFalse(prompt.text().contains("Strategic consultation:"));
+                Assert.assertFalse(prompt.text().contains("subagent"));
+                Assert.assertFalse(prompt.text().contains("the parent's model"));
+            }
         }
         verify(client).close();
     }
@@ -363,10 +377,10 @@ public class AcpAgentShould {
                 Assert.assertTrue(prompt.getValue().text().contains(models.planningModel()));
                 Assert.assertFalse(prompt.getValue().text().contains("&#"), "Provider/model IDs must remain literal");
                 agent.prompt("Next decision");
-                verify(client, times(2)).newSession(any());
+                verify(client).newSession(any());
                 verify(client, times(2)).prompt(prompt.capture());
                 Assert.assertTrue(prompt.getValue().text().contains(models.planningModel()),
-                        "Fresh conversations must retain the selected planning model and consultation instructions");
+                        "Later requests in the turn must retain the selected planning model and consultation instructions");
                 Assert.assertTrue(prompt.getValue().text().contains("Strategic consultation:"));
             }
         }
@@ -467,7 +481,7 @@ public class AcpAgentShould {
     }
 
     @Test
-    public void startFreshConversationsWithTheFullLogGameContextAndSavedNotes() {
+    public void reuseTheConversationWithinATurnAndResetItForEachNewTurnWithCurrentContextAndNotes() {
         final var game = newGame();
         final var player = game.getPlayers().get(0);
         final var opponent = game.getPlayers().get(1);
@@ -495,6 +509,7 @@ public class AcpAgentShould {
             url.set(((McpServerHttp) request.mcpServers().get(0)).url());
             return new NewSessionResponse("session-" + sessions.incrementAndGet());
         });
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, player, false, 1);
         game.getGameLog().add(GameLogEntryType.TURN, "First turn");
         game.getGameLog().add(GameLogEntryType.MANA, "One tapped Island");
         try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY, player);
@@ -504,23 +519,50 @@ public class AcpAgentShould {
             Assert.assertFalse(mcp.callTool(new CallToolRequest(SaveNotes.NAME,
                     Map.of("text", "Develop mana, then answer the threat."))).isError());
             agent.prompt("First decision");
+            game.getPhaseHandler().devModeSet(PhaseType.MAIN2, player, false, 1);
             game.getGameLog().add(GameLogEntryType.DAMAGE, "Two took 3 damage");
             opponent.setLife(14, null);
             hand.setName("Updated hand card");
             battlefield.setTapped(true);
+            final var pending = new Card(game.nextCardId(), game);
+            pending.setOwner(player);
+            pending.setName("Pending spell");
+            game.getStackZone().add(pending);
+            final var spell = new SpellAbility.EmptySa(pending, player) {
+                @Override public boolean isSpell() { return true; }
+                @Override public boolean isAbility() { return false; }
+            };
+            spell.setCopied(true);
+            spell.setStackDescription("Pending spell targeting Two");
+            spell.getTargets().add(opponent);
+            game.getStack().add(spell);
             Assert.assertFalse(mcp.callTool(new CallToolRequest(SaveNotes.NAME,
                     Map.of("text", "The threat is tapped; set up lethal next turn."))).isError());
             agent.prompt("Second decision");
 
-            final var prompts = ArgumentCaptor.forClass(PromptRequest.class);
-            verify(client, times(3)).prompt(prompts.capture());
-            final var first = prompts.getAllValues().get(1);
-            final var second = prompts.getAllValues().get(2);
-            Assert.assertEquals(first.sessionId(), "session-2");
-            Assert.assertEquals(second.sessionId(), "session-3");
-            Assert.assertEquals(agent.getSessionId(), "session-3");
             final String log = String.join("\n", game.getGameLog().getAllEntries().stream()
                     .map(Object::toString).toList());
+            game.getPhaseHandler().devModeSet(PhaseType.UPKEEP, opponent, false, 2);
+            agent.prompt("Opponent turn decision");
+            game.getPhaseHandler().devModeSet(PhaseType.MAIN1, opponent, false, 3);
+            agent.prompt("Extra opponent turn decision");
+
+            final var prompts = ArgumentCaptor.forClass(PromptRequest.class);
+            verify(client, times(5)).prompt(prompts.capture());
+            final var first = prompts.getAllValues().get(1);
+            final var second = prompts.getAllValues().get(2);
+            final var third = prompts.getAllValues().get(3);
+            final var fourth = prompts.getAllValues().get(4);
+            Assert.assertEquals(first.sessionId(), "session-1");
+            Assert.assertEquals(second.sessionId(), first.sessionId(), "Phase changes within a turn must keep the conversation");
+            Assert.assertEquals(third.sessionId(), "session-2", "Start a new conversation on the opponent's turn");
+            Assert.assertEquals(fourth.sessionId(), "session-3", "An extra turn by the same player must reset context too");
+            Assert.assertEquals(agent.getSessionId(), "session-3");
+            for (var prompt : List.of(third, fourth)) {
+                Assert.assertTrue(prompt.text().contains("A fresh conversation starts each game turn."));
+                Assert.assertTrue(prompt.text().contains("The threat is tapped; set up lethal next turn."));
+                Assert.assertTrue(prompt.text().contains("Updated hand card"));
+            }
             Assert.assertTrue(second.text().contains(log), "Include every log type in chronological order");
             Assert.assertFalse(first.text().contains("Two took 3 damage"));
             Assert.assertTrue(second.text().startsWith("You are an AI player for Magic: The Gathering"));
@@ -532,12 +574,17 @@ public class AcpAgentShould {
                 Assert.assertTrue(prompt.text().contains("Your current hand:\n"));
                 Assert.assertTrue(prompt.text().contains("Life totals:\nOne (id=0): 20"));
                 Assert.assertTrue(prompt.text().contains("Battlefield (all players):\n"));
+                Assert.assertTrue(prompt.text().contains("Current stack (top resolves first):\n"));
                 Assert.assertTrue(prompt.text().contains("Opponent public threat"));
                 Assert.assertFalse(prompt.text().contains("Opponent private card"));
                 Assert.assertTrue(prompt.text().contains("Develop mana, then answer the threat."));
                 Assert.assertTrue(prompt.text().contains("Before EVERY gameplay decision, call save_notes"));
             }
             Assert.assertTrue(first.text().contains("Current hand card"));
+            Assert.assertTrue(first.text().contains("Current stack (top resolves first):\nThe stack is empty."));
+            Assert.assertFalse(second.text().contains("The stack is empty."));
+            Assert.assertTrue(second.text().contains("\"source\":{\"id\":" + pending.getId() + ",\"name\":\"Pending spell\""));
+            Assert.assertTrue(second.text().contains("\"targets\":[{\"kind\":\"player\",\"id\":1,\"name\":\"Two\"}]"));
             Assert.assertTrue(first.text().contains("Two (id=1): 17"));
             Assert.assertFalse(first.text().contains("The threat is tapped; set up lethal next turn."));
             Assert.assertFalse(second.text().contains("Current hand card"));
@@ -561,7 +608,13 @@ public class AcpAgentShould {
     @Test
     public void bufferPromptsInOrderAndContinueAfterAResponseFailsWithoutCancellingAcceptedDecisions() throws Exception {
         final var client = clientSelecting(AcpAgent.MODEL);
-        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY)) {
+        final var game = newGame();
+        final var player = game.getPlayers().get(0);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, player, false, 1);
+        final var sessions = new AtomicInteger();
+        when(client.newSession(any())).thenAnswer(invocation -> new NewSessionResponse("buffered-" + sessions.incrementAndGet()));
+        try (var agent = AcpAgent.initialize(client, WORKING_DIRECTORY, player)) {
+            final var sessionIds = new java.util.concurrent.ConcurrentHashMap<String, String>();
             final var requests = new java.util.concurrent.LinkedBlockingQueue<String>();
             final var first = new CompletableFuture<PromptResponse>();
             final var second = new CompletableFuture<PromptResponse>();
@@ -569,13 +622,17 @@ public class AcpAgentShould {
             final var turns = Map.of("First", first, "Second", second, "Third", third);
             when(client.async().prompt(any())).thenAnswer(invocation -> {
                 final PromptRequest request = invocation.getArgument(0);
+                sessionIds.put(currentRequest(request), request.sessionId());
                 requests.add(currentRequest(request));
                 return Mono.fromFuture(turns.get(currentRequest(request)));
             });
             agent.prompt("First", "one", "choice", "First", CompletableFuture.completedFuture("accepted"));
             Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "First");
             agent.prompt("Second", "two", "choice", "Second", CompletableFuture.completedFuture("accepted"));
+            game.getPhaseHandler().devModeSet(PhaseType.UPKEEP, game.getPlayers().get(1), false, 2);
             agent.prompt("Third", "three", "choice", "Third", CompletableFuture.completedFuture("accepted"));
+            // Dispatch must use each prompt's captured turn, even if the game has already advanced.
+            game.getPhaseHandler().devModeSet(PhaseType.MAIN1, player, false, 3);
             verify(client.async(), times(1)).prompt(any());
             Assert.assertFalse(first.isDone(), "Accepting decisions must not stop the active response");
             Assert.assertFalse(second.isDone());
@@ -583,9 +640,11 @@ public class AcpAgentShould {
 
             first.completeExceptionally(new IllegalStateException("First response failed after its decision was accepted"));
             Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Second");
+            Assert.assertEquals(sessionIds.get("Second"), sessionIds.get("First"));
             verify(client.async(), times(2)).prompt(any());
             second.complete(null);
             Assert.assertEquals(requests.poll(5, TimeUnit.SECONDS), "Third");
+            Assert.assertNotEquals(sessionIds.get("Third"), sessionIds.get("Second"));
             third.complete(null);
             Assert.assertFalse(first.isCancelled());
             Assert.assertFalse(second.isCancelled());

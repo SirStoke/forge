@@ -10,12 +10,13 @@ final class PriorityPrompt {
 
     private PriorityPrompt() { }
 
-    static String render(Player player, String requestId) {
+    static String render(Player player, PriorityActionsSnapshot actions) {
         final var phase = player.getGame().getPhaseHandler();
         return TEMPLATE.execute(Map.of(
-                "requestId", requestId,
+                "requestId", actions.requestId(),
                 "playerName", player.getName(),
                 "turnPlayerName", phase.getPlayerTurn().getName(),
-                "phase", phase.getPhase().toString()));
+                "phase", phase.getPhase().toString(),
+                "actions", actions.actions()));
     }
 }

@@ -293,7 +293,14 @@ abstract class LlmDecisionController extends PlayerControllerAi {
                     + " tapped=" + card.isTapped() + " damage=" + card.getDamage() + " counters=" + card.getCounters();
         }
         if (object instanceof Player p) return p.getName() + " id=" + p.getId() + " life=" + p.getLife();
-        if (object instanceof SpellAbility sa) return describe(sa.getHostCard()) + ": " + sa.getDescription();
+        if (object instanceof SpellAbility sa) {
+            // Engine rules such as the legend rule use EmptySa with an ownerless placeholder card.
+            if (sa instanceof SpellAbility.EmptySa && sa.getHostCard().getController() == null) {
+                return "Game rule" + (sa.getApi() == null ? "" : " " + sa.getApi())
+                        + (sa.getDescription().isEmpty() ? "" : ": " + sa.getDescription());
+            }
+            return describe(sa.getHostCard()) + ": " + sa.getDescription();
+        }
         if (object instanceof ICardFace face) return face.getName();
         return String.valueOf(object);
     }

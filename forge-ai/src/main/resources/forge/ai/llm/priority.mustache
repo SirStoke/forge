@@ -3,3 +3,8 @@ Request ID: {{requestId}}
 Protocol: priority (session instructions).
 Turn player: {{turnPlayerName}}
 Phase: {{phase}}
+
+Available actions (cost affordability has not been checked):
+{{#actions}}
+{{name}} [{{zone}}; {{kind}}; cost: {{cost}}]: cardId={{cardId}}, abilityId={{abilityId}}. {{description}}
+{{/actions}}

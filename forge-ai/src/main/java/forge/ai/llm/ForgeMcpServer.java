@@ -14,6 +14,7 @@ import forge.ai.llm.tools.ObserveBattlefield;
 import forge.ai.llm.tools.ObserveGameState;
 import forge.ai.llm.tools.PlayAction;
 import forge.ai.llm.tools.PassPriority;
+import forge.ai.llm.tools.PassUntilOpponentTurn;
 import forge.ai.llm.tools.SubmitChoice;
 import forge.ai.llm.tools.SubmitSideboardPlan;
 import forge.ai.llm.tools.ObservePreviousGameLog;
@@ -42,7 +43,7 @@ final class ForgeMcpServer implements AutoCloseable {
             Mulligan.NAME, SubmitSideboardPlan.NAME, CardDetails.NAME, RulesIndex.NAME, RuleText.NAME,
             ObserveStack.NAME, ObserveHand.NAME, ObserveDeck.NAME, ObservePreviousGameLog.NAME,
             ObserveBattlefield.NAME, ObserveGameState.NAME, GetAvailableActions.NAME, PlayAction.NAME, PassPriority.NAME,
-            SaveNotes.NAME);
+            SaveNotes.NAME, PassUntilOpponentTurn.NAME);
     static final List<String> READ_ONLY_TOOL_NAMES = TOOL_NAMES.stream()
             .filter(name -> !ToolRepository.DECISIONS.contains(name) && !SaveNotes.NAME.equals(name)).toList();
     private final Tomcat tomcat = new Tomcat();
@@ -91,6 +92,8 @@ final class ForgeMcpServer implements AutoCloseable {
                 request.requestId(), new PriorityDecision.PlayAction(request.cardId(), request.abilityId())));
         tools.register(PassPriority::schema, PassPriority::compile,
                 request -> priorityDecision.call(request.requestId(), new PriorityDecision.Pass()));
+        tools.register(PassUntilOpponentTurn::schema, PassUntilOpponentTurn::compile,
+                request -> priorityDecision.call(request.requestId(), new PriorityDecision.PassUntilOpponentTurn()));
 
         final var transport = HttpServletStreamableServerTransportProvider.builder().build();
         mcp = McpServer.sync(transport)

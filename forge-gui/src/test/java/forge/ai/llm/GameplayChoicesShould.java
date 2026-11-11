@@ -385,6 +385,23 @@ public class GameplayChoicesShould {
     }
 
     @Test
+    public void chooseWhichDuplicateLegendToKeepWithAnOwnerlessRuleSource() {
+        try (Session s = new Session()) {
+            Card first = s.card(s.player, ZoneType.Battlefield, "Mox Opal", "ManaCost:0", "Types:Legendary Artifact", "Oracle:");
+            Card second = s.card(s.player, ZoneType.Battlefield, "Mox Opal", "ManaCost:0", "Types:Legendary Artifact", "Oracle:");
+            // GameAction.handleLegendRule supplies this placeholder, rather than a player-controlled source card.
+            SpellAbility rule = new SpellAbility.EmptySa(forge.game.ability.ApiType.InternalLegendaryRule,
+                    new Card(-1, s.game), s.player);
+            Assert.assertNull(rule.getHostCard().getController());
+            s.answer(prompt -> s.choices(prompt, "Mox Opal id=" + second.getId()));
+            Card kept = s.controller.chooseSingleEntityForEffect(new CardCollection(List.of(first, second)), rule,
+                    "You have multiple legendary permanents named Mox Opal. Choose the one to stay on battlefield.", null);
+            Assert.assertSame(kept, second);
+            Assert.assertEquals(s.prompts.size(), 1, "The legend-rule choice must reach the LLM through MCP");
+        }
+    }
+
+    @Test
     public void selectCountersAndPreventSpeculativeOrSimulationPrompts() {
         try (Session s = new Session()) {
             Card card = s.creature(s.player, "Counter source");
